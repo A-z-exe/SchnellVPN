@@ -62,9 +62,12 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     .setSession("SchnellVPN")
                     .addAddress("10.10.14.1", 30)
                     .addDnsServer("1.1.1.1")
+                    .addDnsServer("8.8.8.8")
                     .addRoute("0.0.0.0", 0)
+                    .addRoute("::", 0)
                     .setMtu(1500)
-
+                    .addDisallowedApplication("com.android.vending") // Play Store
+                    .addDisallowedApplication(packageName)           // خود اپ
                 tunInterface = builder.establish()
                 val fd = tunInterface?.fd ?: throw IllegalStateException("TUN ساخته نشد")
 
