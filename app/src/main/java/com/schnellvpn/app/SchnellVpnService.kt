@@ -17,9 +17,7 @@ import libv2ray.CoreController
 import libv2ray.Libv2ray
 
 /**
- * این سرویس کاری که توی نمودار به این صورت نشون داده می‌شد رو انجام می‌ده:
- * VpnService (TUN می‌سازه) -> Xray-core (پروتکل رو پیاده‌سازی می‌کنه)
- * تن‌تو‌سوکس به‌صورت خودکار داخل خودِ libv2ray.aar انجام می‌شه، نیازی به کتابخونه‌ی جدا نیست.
+ * سرویس اصلی VPN - اتصال TUN + Xray Core
  */
 class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
@@ -51,33 +49,39 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
         scope.launch {
             try {
-                // 1) ConfigParser: لینک رو به JSON تبدیل می‌کنیم
+                // 1) ساخت کانفیگ Xray
                 val config = XrayConfigBuilder.buildConfig(link)
 
-                // 2) آماده‌سازی محیط هسته (یک‌بار کافیه)
+                // 2) آماده‌سازی محیط Xray
                 Libv2ray.initCoreEnv(filesDir.absolutePath, "")
 
-                // 3) ساخت TUN interface (اینجا VpnService ترافیک گوشی رو می‌گیره)
+                // 3) ساخت TUN Interface (بهینه‌شده)
                 val builder = Builder()
                     .setSession("SchnellVPN")
+                    .setMtu(1500)
                     .addAddress("10.10.14.1", 30)
                     .addDnsServer("1.1.1.1")
                     .addDnsServer("8.8.8.8")
-                    .addRoute("0.0.0.0", 0)
-                    .addRoute("::", 0)
-                    .setMtu(1500)
-                    .addDisallowedApplication("com.android.vending") // Play Store
+                    .addRoute("0.0.0.0", 0)      // تمام IPv4
+                    .addRoute("::", 0)            // تمام IPv6
                     .addDisallowedApplication(packageName)           // خود اپ
+                    .addDisallowedApplication("com.android.vending") // Play Store
+
                 tunInterface = builder.establish()
                 val fd = tunInterface?.fd ?: throw IllegalStateException("TUN ساخته نشد")
 
-                // 4) روشن کردن هسته‌ی Xray با همین فایل‌دیسکریپتور TUN
+                // 4) شروع هسته Xray
                 coreController = CoreController(this@SchnellVpnService)
                 coreController?.startLoop(config, fd)
 
-                withContext(Dispatchers.Main) { updateNotification("متصل شدید") }
+                withContext(Dispatchers.Main) {
+                    updateNotification("متصل شدید ✓")
+                }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) { updateNotification("اتصال ناموفق بود: ${e.message}") }
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    updateNotification("خطا: ${e.message}")
+                }
                 stopVpn()
             }
         }
@@ -87,8 +91,10 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         scope.launch {
             try { coreController?.stopLoop() } catch (_: Exception) { }
             try { tunInterface?.close() } catch (_: Exception) { }
+            
             tunInterface = null
             coreController = null
+
             withContext(Dispatchers.Main) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -106,18 +112,24 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         super.onDestroy()
     }
 
-    // ---- این سه تا متد رو خودِ کتابخونه libv2ray صدا می‌زنه، لازم نیست خودت صداش کنی ----
+    // Callbackهای Core
     override fun startup(): Long = 0
     override fun shutdown(): Long = 0
     override fun onEmitStatus(code: Long, message: String?): Long = 0
 
+    // Notification
     private fun buildNotification(text: String): android.app.Notification {
         val manager = getSystemService(NotificationManager::class.java)
+        
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "SchnellVPN", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "SchnellVPN Service",
+                NotificationManager.IMPORTANCE_LOW
             )
+            manager.createNotificationChannel(channel)
         }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("SchnellVPN")
             .setContentText(text)
@@ -127,6 +139,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     }
 
     private fun updateNotification(text: String) {
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIFICATION_ID, buildNotification(text))
     }
 }
