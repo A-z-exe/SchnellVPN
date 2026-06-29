@@ -21,8 +21,31 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew || true
+      - name: Install Android NDK
+        continue-on-error: true
+        run: sdkmanager --install "ndk;26.3.11579264"
+
+      - name: Build tun2socks bridge (diagnostic)
+        continue-on-error: true
+        run: |
+          set -x
+          mkdir -p tun2socks-src
+          git clone --recursive https://github.com/heiher/hev-socks5-tunnel tun2socks-src/jni
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.3.11579264"
+          cd tun2socks-src
+          "$ANDROID_NDK_HOME/ndk-build" || echo "ndk-build failed (see log above) -- diagnostic only, continuing"
+          echo "---- .so files found ----"
+          find . -name "*.so" || true
+          echo "---- exported JNI symbols ----"
+          for f in $(find . -name "*.so"); do
+            echo "== $f =="
+            "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only "$f" | grep -i Java || echo "(no Java_ symbols)"
+          done
+
+      - name: Download libv2ray.aar
+        run: |
+          mkdir -p app/libs
+          curl -L -o app/libs/libv2ray.aar https://github.com/2dust/AndroidLibXrayLite/releases/latest/download/libv2ray.aar
 
       - name: Build debug APK
         run: gradle assembleDebug
