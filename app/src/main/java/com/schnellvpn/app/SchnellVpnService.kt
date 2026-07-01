@@ -5,6 +5,8 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import android.system.Os
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,9 +37,13 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         private const val NOTIFICATION_ID = 1
         private const val SOCKS_PORT = 10808
         private const val TUN_ADDRESS = "10.10.14.1"
+        private const val TAG = "SchnellVpnService"
     }
 
     private var tunInterface: ParcelFileDescriptor? = null
+    // اگر fd را detach کردیم، مالکیت به native منتقل شده و این فیلد fd نگهداری می‌شود
+    private var tunFd: Int = -1
+    private var nativeOwnsTunFd: Boolean = false
     private var coreController: CoreController? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var statsJob: kotlinx.coroutines.Job? = null
@@ -59,6 +65,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
         scope.launch {
             try {
+                Log.i(TAG, "startVpn: building config")
                 // 1) لینک واقعی کاربر -> کانفیگ JSON واقعی Xray
                 val config = XrayConfigBuilder.buildConfig(link, socksPort = SOCKS_PORT)
 
@@ -73,8 +80,27 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     .addRoute("0.0.0.0", 0)
                     .setMtu(1500)
 
-                tunInterface = builder.establish()
-                val fd = tunInterface?.fd ?: throw IllegalStateException("TUN ساخته نشد")
+                val pfd = builder.establish()
+                if (pfd == null) throw IllegalStateException("TUN ساخته نشد")
+
+                synchronized(this@SchnellVpnService) {
+                    tunInterface = pfd
+                }
+
+                // انتقال مالکیت FD به native (detach) — اگر این کار انجام شود، دیگر نباید این FD را در جاوا ببندیم
+                val fdToGive = try {
+                    pfd.detachFd()
+                } catch (ex: Exception) {
+                    Log.w(TAG, "detachFd failed, trying to use raw fd: ${ex.message}")
+                    pfd.fd
+                }
+
+                synchronized(this@SchnellVpnService) {
+                    tunFd = fdToGive
+                    nativeOwnsTunFd = true
+                    // اگر detach انجام شده، tunInterface دیگر دیگر برای ما معنی ندارد
+                    tunInterface = null
+                }
 
                 // 4) روشن کردن Xray-core — fd صفر چون این دیگه خودش TUN رو نمی‌خونه؛
                 //    این کار رو لایه‌ی پایین (HevBridge/tun2socks) انجام می‌ده
@@ -97,14 +123,32 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 tproxyFile.writeText(hevConfig)
 
                 // 6) روشن کردن لایه‌ی واقعی tun2socks — این خودش داخلی یک ترد می‌سازه و بلافاصله برمی‌گرده
-                HevBridge.TProxyStartService(tproxyFile.absolutePath, fd)
+                try {
+                    Log.i(TAG, "Starting TProxy service with fd=$tunFd")
+                    HevBridge.TProxyStartService(tproxyFile.absolutePath, tunFd)
+                } catch (t: Throwable) {
+                    Log.e(TAG, "TProxyStartService failed: ${t.message}", t)
+                    // اگر native شروع نشد، سعی کنیم fd را ببندیم و تمیزکاری کنیم
+                    synchronized(this@SchnellVpnService) {
+                        if (nativeOwnsTunFd && tunFd != -1) {
+                            try { Os.close(tunFd) } catch (_: Throwable) {}
+                            tunFd = -1
+                            nativeOwnsTunFd = false
+                        }
+                    }
+                    VpnStatus.lastError.value = "tproxy start failed: ${t.message}"
+                    stopVpn()
+                    return@launch
+                }
 
+                // همه چیز بالا آمد — وضعیت را علامت‌گذاری کن
                 VpnStatus.isConnected.value = true
                 VpnStatus.connectStartMillis.value = System.currentTimeMillis()
                 startStatsPolling()
 
                 withContext(Dispatchers.Main) { updateNotification("متصل شدید") }
             } catch (e: Exception) {
+                Log.e(TAG, "startVpn exception: ${e.message}", e)
                 VpnStatus.lastError.value = e.message
                 withContext(Dispatchers.Main) { updateNotification("اتصال ناموفق بود: ${e.message}") }
                 stopVpn()
@@ -123,7 +167,9 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                         VpnStatus.txBytes.value = stats[1]
                         VpnStatus.rxBytes.value = stats[3]
                     }
-                } catch (_: Throwable) { /* اگه سرویس هنوز کامل بالا نیومده، نادیده بگیر */ }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "TProxyGetStats exception (possibly not ready yet): ${t.message}")
+                }
                 delay(1000)
             }
         }
@@ -132,10 +178,30 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     private fun stopVpn() {
         scope.launch {
             statsJob?.cancel()
-            try { HevBridge.TProxyStopService() } catch (_: Throwable) { }
-            try { coreController?.stopLoop() } catch (_: Exception) { }
-            try { tunInterface?.close() } catch (_: Exception) { }
-            tunInterface = null
+            try {
+                Log.i(TAG, "Stopping TProxy service")
+                HevBridge.TProxyStopService()
+            } catch (t: Throwable) {
+                Log.w(TAG, "Error stopping TProxy: ${t.message}")
+            }
+
+            try {
+                coreController?.stopLoop()
+            } catch (e: Exception) {
+                Log.w(TAG, "coreController.stopLoop failed: ${e.message}")
+            }
+
+            // اگر native هنوز مالک FD است، ببندش
+            synchronized(this@SchnellVpnService) {
+                if (nativeOwnsTunFd && tunFd != -1) {
+                    try { Os.close(tunFd) } catch (t: Throwable) { Log.w(TAG, "closing tunFd failed: ${t.message}") }
+                    tunFd = -1
+                    nativeOwnsTunFd = false
+                }
+                try { tunInterface?.close() } catch (e: Exception) { /* ignore */ }
+                tunInterface = null
+            }
+
             coreController = null
             VpnStatus.reset()
             withContext(Dispatchers.Main) {
