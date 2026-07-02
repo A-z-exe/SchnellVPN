@@ -8,127 +8,323 @@ import java.net.URLDecoder
 import java.util.UUID
 
 /**
- * این کلاس لینک‌های vless:// , vmess:// , trojan:// , ss:// رو می‌خونه
- * و کانفیگ JSON کامل Xray-core که برای StartLoop لازمه رو می‌سازه.
- *
- * بازنویسی شده تا ورودی‌ها با اعتبارسنجی بیشتری پردازش شوند و خطاهای
- * پارس شدن شفاف‌تر باشند.
+ * XrayConfigBuilder - بازنویسی کامل با ساختار استاندارد Xray-core
+ * پشتیبانی از: VLESS, VMess, Trojan, Shadowsocks
+ * بهینه‌شده برای TUN-mode و Routing صحیح
  */
 object XrayConfigBuilder {
 
-    fun buildConfig(link: String, socksPort: Int = 10808): String {
+    /**
+     * ساخت کانفیگ کامل Xray-core
+     * @param link لینک ورودی (vless://, vmess://, trojan://, ss://)
+     * @param socksPort پورت Socks proxy داخلی
+     * @param tunFd فایل دیسکریپتور TUN (برای TUN-mode)
+     */
+    fun buildConfig(
+        link: String,
+        socksPort: Int = 10808,
+        tunFd: Int = -1
+    ): String {
         val trimmed = link.trim()
-        if (trimmed.isEmpty()) throw IllegalArgumentException("link is empty")
+        if (trimmed.isEmpty()) throw IllegalArgumentException("Link is empty")
 
         val outbound = try {
             parseLinkToOutbound(trimmed)
         } catch (e: Exception) {
-            throw IllegalArgumentException("invalid link format: ${e.message}")
+            throw IllegalArgumentException("Invalid link format: ${e.message}")
         }
 
         val root = JSONObject()
-        root.put("log", JSONObject().put("loglevel", "warning"))
 
-        // Inbounds
-        val inbounds = JSONArray().put(
-            JSONObject()
-                .put("tag", "socks-in")
-                .put("listen", "127.0.0.1")
-                .put("port", socksPort)
-                .put("protocol", "socks")
-                .put("settings", JSONObject().put("udp", true))
-        )
+        // ========== 1. LOG ==========
+        root.put("log", JSONObject().apply {
+            put("loglevel", "warning")  // برای دیباگ: "debug" بگذارید
+            put("access", "/sdcard/xray_access.log")
+            put("error", "/sdcard/xray_error.log")
+        })
+
+        // ========== 2. INBOUNDS ==========
+        val inbounds = JSONArray().apply {
+            // Socks5 inbound برای تست و دیباگ
+            put(JSONObject().apply {
+                put("tag", "socks-in")
+                put("listen", "127.0.0.1")
+                put("port", socksPort)
+                put("protocol", "socks")
+                put("settings", JSONObject().apply {
+                    put("auth", "noauth")
+                    put("udp", true)
+                })
+                put("sniffing", JSONObject().apply {
+                    put("enabled", true)
+                    put("destOverride", JSONArray().apply {
+                        put("http")
+                        put("tls")
+                        put("quic")
+                    })
+                })
+            })
+            
+            // TUN inbound (اگر tunFd معتبر باشد)
+            if (tunFd > 0) {
+                put(JSONObject().apply {
+                    put("tag", "tun-in")
+                    put("protocol", "tun")
+                    put("settings", JSONObject().apply {
+                        put("address", JSONArray().apply {
+                            put("10.0.0.2/32")   // IPv4
+                            put("fd00::2/64")     // IPv6 (اختیاری)
+                        })
+                        put("mtu", 1500)
+                    })
+                    put("sniffing", JSONObject().apply {
+                        put("enabled", true)
+                        put("destOverride", JSONArray().apply {
+                            put("http")
+                            put("tls")
+                            put("quic")
+                        })
+                    })
+                })
+            }
+        }
         root.put("inbounds", inbounds)
 
-        // Outbounds
-        val outbounds = JSONArray()
-            .put(outbound)
-            .put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
+        // ========== 3. OUTBOUNDS ==========
+        val outbounds = JSONArray().apply {
+            // خروجی اصلی (پروکسی)
+            put(outbound)
+            
+            // خروجی مستقیم (برای ترافیک داخلی)
+            put(JSONObject().apply {
+                put("tag", "direct")
+                put("protocol", "freedom")
+                put("settings", JSONObject().apply {
+                    put("domainStrategy", "UseIP")  // مهم برای DNS
+                })
+            })
+            
+            // خروجی بلاک (برای مسدودسازی)
+            put(JSONObject().apply {
+                put("tag", "block")
+                put("protocol", "blackhole")
+                put("settings", JSONObject().apply {
+                    put("response", JSONObject().apply {
+                        put("type", "none")
+                    })
+                })
+            })
+            
+            // DNS خروجی
+            put(JSONObject().apply {
+                put("tag", "dns-out")
+                put("protocol", "dns")
+            })
+        }
         root.put("outbounds", outbounds)
 
-        // === Routing Rule - این بخش خیلی مهمه ===
+        // ========== 4. ROUTING (بسیار مهم) ==========
         val routing = JSONObject().apply {
-            put("domainStrategy", "AsIs")
-            val rules = JSONArray().put(
-                JSONObject().apply {
+            put("domainStrategy", "IPIfNonMatch")  // یا "IPOnDemand"
+            
+            val rules = JSONArray().apply {
+                // ====== Rule 1: DNS ======
+                put(JSONObject().apply {
                     put("type", "field")
-                    put("network", "tcp,udp")
+                    put("port", "53")
+                    put("network", "udp")
+                    put("outboundTag", "dns-out")
+                })
+                
+                // ====== Rule 2: ترافیک LAN ======
+                put(JSONObject().apply {
+                    put("type", "field")
+                    put("ip", JSONArray().apply {
+                        put("geoip:private")
+                        put("geoip:loopback")
+                    })
+                    put("outboundTag", "direct")
+                })
+                
+                // ====== Rule 3: همه ترافیک IPv4 (مهم) ======
+                put(JSONObject().apply {
+                    put("type", "field")
+                    put("ip", JSONArray().apply {
+                        put("0.0.0.0/0")  // همه IPv4
+                    })
                     put("outboundTag", "proxy")
-                }
-            )
+                })
+                
+                // ====== Rule 4: همه ترافیک IPv6 (مهم) ======
+                put(JSONObject().apply {
+                    put("type", "field")
+                    put("ip", JSONArray().apply {
+                        put("::/0")  // همه IPv6
+                    })
+                    put("outboundTag", "proxy")
+                })
+                
+                // ====== Rule 5: استثنای بعضی دامنه‌ها (اختیاری) ======
+                put(JSONObject().apply {
+                    put("type", "field")
+                    put("domain", JSONArray().apply {
+                        put("geosite:category-ads")  // مسدودسازی تبلیغات
+                        put("geosite:malware")        // مسدودسازی بدافزارها
+                    })
+                    put("outboundTag", "block")
+                })
+            }
             put("rules", rules)
         }
         root.put("routing", routing)
 
-        return root.toString()
+        // ========== 5. POLICY ==========
+        val policy = JSONObject().apply {
+            put("levels", JSONObject().apply {
+                put("0", JSONObject().apply {
+                    put("connIdle", 300)
+                    put("uplinkOnly", 5)
+                    put("downlinkOnly", 30)
+                    put("statsUserUplink", false)
+                    put("statsUserDownlink", false)
+                    put("bufferSize", 10240)
+                })
+            })
+            put("system", JSONObject().apply {
+                put("statsInboundUplink", false)
+                put("statsInboundDownlink", false)
+                put("statsOutboundUplink", false)
+                put("statsOutboundDownlink", false)
+            })
+        }
+        root.put("policy", policy)
+
+        // ========== 6. DNS ==========
+        val dns = JSONObject().apply {
+            put("servers", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("address", "https+local://dns.google/dns-query")
+                    put("domains", JSONArray().apply {
+                        put("geosite:google")
+                    })
+                    put("expectIPs", JSONArray().apply {
+                        put("geoip:google")
+                    })
+                })
+                put(JSONObject().apply {
+                    put("address", "1.1.1.1")
+                    put("port", 53)
+                    put("domains", JSONArray().apply {
+                        put("geosite:cloudflare")
+                    })
+                })
+                put("8.8.8.8")  // DNS پیش‌فرض
+                put("1.1.1.1")
+                put("https+local://dns.quad9.net/dns-query")
+                put("localhost")  // DNS محلی
+            })
+        }
+        root.put("dns", dns)
+
+        return root.toString(2)  // Pretty print برای دیباگ
     }
+
+    // ============================================================
+    // PARSE LINK TO OUTBOUND
+    // ============================================================
 
     private fun parseLinkToOutbound(link: String): JSONObject = when {
         link.startsWith("vless://") -> parseVless(link)
         link.startsWith("vmess://") -> parseVmess(link)
         link.startsWith("trojan://") -> parseTrojan(link)
         link.startsWith("ss://") -> parseShadowsocks(link)
-        else -> throw IllegalArgumentException("unsupported protocol: $link")
+        else -> throw IllegalArgumentException("Unsupported protocol: ${link.take(20)}")
     }
 
     // ==================== VLESS ====================
     private fun parseVless(link: String): JSONObject {
-        val uri = try { URI(link) } catch (e: Exception) { throw IllegalArgumentException("malformed vless uri") }
-        val uuid = uri.userInfo ?: throw IllegalArgumentException("missing uuid in vless link")
-        // validate uuid
-        try { UUID.fromString(uuid) } catch (e: Exception) { /* not fatal: some providers use non-hyphen format */ }
+        val uri = try { URI(link) } catch (e: Exception) { 
+            throw IllegalArgumentException("Malformed vless URI: ${e.message}") 
+        }
+        val uuid = uri.userInfo ?: throw IllegalArgumentException("Missing UUID in vless link")
+        try { UUID.fromString(uuid) } catch (_: Exception) { /* برخی providers از فرمت بدون خط تیره استفاده می‌کنند */ }
 
-        val address = uri.host ?: throw IllegalArgumentException("missing host in vless link")
+        val address = uri.host ?: throw IllegalArgumentException("Missing host in vless link")
         val port = if (uri.port > 0) uri.port else 443
         val params = parseQuery(uri.rawQuery)
 
         val network = params["type"] ?: "tcp"
-        val streamSettings = JSONObject().put("network", network)
-
-        when (network) {
-            "ws" -> streamSettings.put(
-                "wsSettings", JSONObject()
-                    .put("path", params["path"] ?: "/")
-                    .put("headers", JSONObject().put("Host", params["host"] ?: address))
-            )
-            "grpc" -> streamSettings.put(
-                "grpcSettings", JSONObject().put("serviceName", params["serviceName"] ?: "")
-            )
+        val streamSettings = JSONObject().apply {
+            put("network", network)
         }
 
+        // ===== Stream Settings =====
+        when (network) {
+            "ws" -> streamSettings.put("wsSettings", JSONObject().apply {
+                put("path", params["path"] ?: "/")
+                put("headers", JSONObject().apply {
+                    put("Host", params["host"] ?: address)
+                })
+            })
+            "grpc" -> streamSettings.put("grpcSettings", JSONObject().apply {
+                put("serviceName", params["serviceName"] ?: "")
+            })
+            "http" -> streamSettings.put("httpSettings", JSONObject().apply {
+                put("path", params["path"] ?: "/")
+                put("host", JSONArray().apply {
+                    put(params["host"] ?: address)
+                })
+            })
+        }
+
+        // ===== Security =====
         val security = params["security"] ?: "none"
         streamSettings.put("security", security)
+        
         when (security) {
-            "tls" -> streamSettings.put(
-                "tlsSettings", JSONObject()
-                    .put("serverName", params["sni"] ?: address)
-                    .put("allowInsecure", false)
-            )
-            "reality" -> streamSettings.put(
-                "realitySettings", JSONObject()
-                    .put("serverName", params["sni"] ?: address)
-                    .put("fingerprint", params["fp"] ?: "chrome")
-                    .put("publicKey", params["pbk"] ?: "")
-                    .put("shortId", params["sid"] ?: "")
-                    .put("spiderX", params["spx"] ?: "")
-            )
+            "tls" -> streamSettings.put("tlsSettings", JSONObject().apply {
+                put("serverName", params["sni"] ?: address)
+                put("allowInsecure", false)
+                put("fingerprint", params["fp"] ?: "chrome")
+            })
+            "reality" -> streamSettings.put("realitySettings", JSONObject().apply {
+                put("serverName", params["sni"] ?: address)
+                put("fingerprint", params["fp"] ?: "chrome")
+                put("publicKey", params["pbk"] ?: "")
+                put("shortId", params["sid"] ?: "")
+                put("spiderX", params["spx"] ?: "/")
+            })
         }
 
-        val user = JSONObject()
-            .put("id", uuid)
-            .put("encryption", "none")
-            .put("flow", params["flow"] ?: "")
+        // ===== XTLS Flow =====
+        val flow = params["flow"] ?: ""
+        if (flow.isNotEmpty() && security == "reality") {
+            streamSettings.put("xtlsSettings", JSONObject().apply {
+                put("flow", flow)
+            })
+        }
 
-        val vnext = JSONObject()
-            .put("address", address)
-            .put("port", port)
-            .put("users", JSONArray().put(user))
+        // ===== User & Server =====
+        val user = JSONObject().apply {
+            put("id", uuid)
+            put("encryption", "none")
+            if (flow.isNotEmpty()) put("flow", flow)
+        }
 
-        return JSONObject()
-            .put("tag", "proxy")
-            .put("protocol", "vless")
-            .put("settings", JSONObject().put("vnext", JSONArray().put(vnext)))
-            .put("streamSettings", streamSettings)
+        val server = JSONObject().apply {
+            put("address", address)
+            put("port", port)
+            put("users", JSONArray().put(user))
+        }
+
+        return JSONObject().apply {
+            put("tag", "proxy")
+            put("protocol", "vless")
+            put("settings", JSONObject().apply {
+                put("vnext", JSONArray().put(server))
+            })
+            put("streamSettings", streamSettings)
+        }
     }
 
     // ==================== VMESS ====================
@@ -137,86 +333,142 @@ object XrayConfigBuilder {
         val json = try {
             val padded = padBase64(raw)
             String(Base64.decode(padded, Base64.DEFAULT))
-        } catch (e: Exception) { throw IllegalArgumentException("invalid vmess base64: ${e.message}") }
+        } catch (e: Exception) { 
+            throw IllegalArgumentException("Invalid vmess base64: ${e.message}") 
+        }
 
-        val obj = try { JSONObject(json) } catch (e: Exception) { throw IllegalArgumentException("vmess json parse failed") }
+        val obj = try { JSONObject(json) } catch (e: Exception) { 
+            throw IllegalArgumentException("Vmess JSON parse failed: ${e.message}") 
+        }
+
+        val address = obj.optString("add", "")
+        if (address.isEmpty()) throw IllegalArgumentException("Missing 'add' in vmess config")
 
         val network = obj.optString("net", "tcp")
-        val streamSettings = JSONObject().put("network", network)
-
-        if (network == "ws") {
-            streamSettings.put(
-                "wsSettings", JSONObject()
-                    .put("path", obj.optString("path", "/"))
-                    .put("headers", JSONObject().put("Host", obj.optString("host")))
-            )
-        }
-        if (obj.optString("tls") == "tls") {
-            streamSettings.put("security", "tls")
-            streamSettings.put(
-                "tlsSettings",
-                JSONObject().put("serverName", obj.optString("sni", obj.optString("add")))
-            )
-        } else {
-            streamSettings.put("security", "none")
+        val streamSettings = JSONObject().apply {
+            put("network", network)
         }
 
-        val user = JSONObject()
-            .put("id", obj.optString("id"))
-            .put("alterId", obj.optInt("aid", 0))
-            .put("security", "auto")
+        when (network) {
+            "ws" -> streamSettings.put("wsSettings", JSONObject().apply {
+                put("path", obj.optString("path", "/"))
+                put("headers", JSONObject().apply {
+                    put("Host", obj.optString("host", address))
+                })
+            })
+            "grpc" -> streamSettings.put("grpcSettings", JSONObject().apply {
+                put("serviceName", obj.optString("serviceName", ""))
+            })
+            "h2" -> streamSettings.put("httpSettings", JSONObject().apply {
+                put("path", obj.optString("path", "/"))
+                put("host", JSONArray().apply {
+                    put(obj.optString("host", address))
+                })
+            })
+        }
 
-        val vnext = JSONObject()
-            .put("address", obj.optString("add"))
-            .put("port", obj.optString("port").toIntOrNull() ?: 443)
-            .put("users", JSONArray().put(user))
+        // ===== Security =====
+        val security = if (obj.optString("tls") == "tls") "tls" else "none"
+        streamSettings.put("security", security)
+        
+        if (security == "tls") {
+            streamSettings.put("tlsSettings", JSONObject().apply {
+                put("serverName", obj.optString("sni", address))
+                put("allowInsecure", false)
+                put("fingerprint", obj.optString("fp", "chrome"))
+            })
+        }
 
-        return JSONObject()
-            .put("tag", "proxy")
-            .put("protocol", "vmess")
-            .put("settings", JSONObject().put("vnext", JSONArray().put(vnext)))
-            .put("streamSettings", streamSettings)
+        // ===== User =====
+        val user = JSONObject().apply {
+            put("id", obj.optString("id", ""))
+            put("alterId", obj.optInt("aid", 0))
+            put("security", "auto")
+            put("level", 8)
+        }
+
+        val server = JSONObject().apply {
+            put("address", address)
+            put("port", obj.optString("port").toIntOrNull() ?: 443)
+            put("users", JSONArray().put(user))
+        }
+
+        return JSONObject().apply {
+            put("tag", "proxy")
+            put("protocol", "vmess")
+            put("settings", JSONObject().apply {
+                put("vnext", JSONArray().put(server))
+            })
+            put("streamSettings", streamSettings)
+        }
     }
 
     // ==================== TROJAN ====================
     private fun parseTrojan(link: String): JSONObject {
-        val uri = try { URI(link) } catch (e: Exception) { throw IllegalArgumentException("malformed trojan uri") }
-        val password = uri.userInfo ?: throw IllegalArgumentException("missing password in trojan link")
+        val uri = try { URI(link) } catch (e: Exception) { 
+            throw IllegalArgumentException("Malformed trojan URI: ${e.message}") 
+        }
+        val password = uri.userInfo ?: throw IllegalArgumentException("Missing password in trojan link")
+        val address = uri.host ?: throw IllegalArgumentException("Missing host in trojan link")
+        val port = if (uri.port > 0) uri.port else 443
         val params = parseQuery(uri.rawQuery)
 
-        val streamSettings = JSONObject()
-            .put("network", params["type"] ?: "tcp")
-            .put("security", params["security"] ?: "tls")
-            .put(
-                "tlsSettings", JSONObject()
-                    .put("serverName", params["sni"] ?: uri.host)
-                    .put("allowInsecure", false)
-            )
+        val streamSettings = JSONObject().apply {
+            put("network", params["type"] ?: "tcp")
+            put("security", params["security"] ?: "tls")
+            put("tlsSettings", JSONObject().apply {
+                put("serverName", params["sni"] ?: address)
+                put("allowInsecure", false)
+                put("fingerprint", params["fp"] ?: "chrome")
+            })
+        }
 
-        val server = JSONObject()
-            .put("address", uri.host ?: throw IllegalArgumentException("missing host in trojan link"))
-            .put("port", if (uri.port > 0) uri.port else 443)
-            .put("password", password)
+        // ===== WS/GRPC support for Trojan =====
+        when (params["type"]) {
+            "ws" -> streamSettings.put("wsSettings", JSONObject().apply {
+                put("path", params["path"] ?: "/")
+                put("headers", JSONObject().apply {
+                    put("Host", params["host"] ?: address)
+                })
+            })
+            "grpc" -> streamSettings.put("grpcSettings", JSONObject().apply {
+                put("serviceName", params["serviceName"] ?: "")
+            })
+        }
 
-        return JSONObject()
-            .put("tag", "proxy")
-            .put("protocol", "trojan")
-            .put("settings", JSONObject().put("servers", JSONArray().put(server)))
-            .put("streamSettings", streamSettings)
+        val server = JSONObject().apply {
+            put("address", address)
+            put("port", port)
+            put("password", password)
+        }
+
+        return JSONObject().apply {
+            put("tag", "proxy")
+            put("protocol", "trojan")
+            put("settings", JSONObject().apply {
+                put("servers", JSONArray().put(server))
+            })
+            put("streamSettings", streamSettings)
+        }
     }
 
     // ==================== SHADOWSOCKS ====================
     private fun parseShadowsocks(link: String): JSONObject {
-        // handle ss://base64@host:port or ss://method:pass@host:port or ss://base64#tag
         val body = link.removePrefix("ss://").substringBefore("#")
         val atIndex = body.lastIndexOf('@')
+        
         val userInfoRaw = if (atIndex >= 0) body.substring(0, atIndex) else ""
         val hostPort = if (atIndex >= 0) body.substring(atIndex + 1) else body
 
+        // Decode user info
         val userInfo = if (userInfoRaw.isNotEmpty() && userInfoRaw.contains(":")) {
             userInfoRaw
         } else if (userInfoRaw.isNotEmpty()) {
-            try { String(Base64.decode(padBase64(userInfoRaw), Base64.DEFAULT)) } catch (_: Exception) { userInfoRaw }
+            try { 
+                String(Base64.decode(padBase64(userInfoRaw), Base64.DEFAULT)) 
+            } catch (_: Exception) { 
+                userInfoRaw 
+            }
         } else ""
 
         val parts = userInfo.split(":", limit = 2)
@@ -225,20 +477,29 @@ object XrayConfigBuilder {
 
         val cleanHostPort = hostPort.substringBefore("?")
         val hpParts = cleanHostPort.split(":", limit = 2)
-        val host = hpParts.getOrElse(0) { throw IllegalArgumentException("missing host in ss link") }
+        val address = hpParts.getOrElse(0) { throw IllegalArgumentException("Missing host in ss link") }
         val port = hpParts.getOrElse(1) { "443" }.toIntOrNull() ?: 443
 
-        val server = JSONObject()
-            .put("address", host)
-            .put("port", port)
-            .put("method", method)
-            .put("password", password)
+        val server = JSONObject().apply {
+            put("address", address)
+            put("port", port)
+            put("method", method)
+            put("password", password)
+            put("level", 8)
+        }
 
-        return JSONObject()
-            .put("tag", "proxy")
-            .put("protocol", "shadowsocks")
-            .put("settings", JSONObject().put("servers", JSONArray().put(server)))
+        return JSONObject().apply {
+            put("tag", "proxy")
+            put("protocol", "shadowsocks")
+            put("settings", JSONObject().apply {
+                put("servers", JSONArray().put(server))
+            })
+        }
     }
+
+    // ============================================================
+    // UTILITY FUNCTIONS
+    // ============================================================
 
     private fun parseQuery(query: String?): Map<String, String> {
         if (query.isNullOrEmpty()) return emptyMap()
