@@ -65,11 +65,13 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 // 3) ساخت TUN
                 val builder = Builder()
                     .setSession("SchnellVPN")
-                    .addAddress(TUN_ADDR, 30)
-                    .addDnsServer("1.1.1.1")
-                    .addDnsServer("8.8.8.8")
-                    .addRoute("0.0.0.0", 0)
-                    .setMtu(1500)
+                    .addAddress("10.0.0.2", 32)  // .آیپی داخل تونل
+                    .addRoute("0.0.0.0", 0)      // همه ترافیک
+                    .addDnsServer("8.8.8.8")     // DNS گوگل
+                    .addDnsServer("1.1.1.1")     // DNS کلادفلیر
+                    .setBlocking(true)
+                    .setUnderlyingNetworks(null)
+                    
 
                 tunPfd = builder.establish()
                     ?: throw IllegalStateException("TUN establish failed — اجازه‌ی VPN داده نشده")
