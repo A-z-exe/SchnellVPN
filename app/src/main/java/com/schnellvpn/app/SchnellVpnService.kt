@@ -36,7 +36,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         private const val RECONNECT_DELAY_MS = 3000L
     }
 
-    // ===== همه متغیرها با var =====
+    // ===== همه متغیرها با var (قابل تغییر) =====
     private var tunPfd: ParcelFileDescriptor? = null
     private var coreController: CoreController? = null
     private var statsJob: Job? = null
