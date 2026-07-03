@@ -16,13 +16,6 @@ import libv2ray.Libv2ray
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * SchnellVpnService - بازنویسی کامل با معماری پایدار
- * - مدیریت صحیح TUN و Xray-core
- * - بازیابی خودکار اتصال
- * - بهینه‌سازی مصرف باتری
- * - دیباگ کامل
- */
 class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
     companion object {
@@ -35,32 +28,28 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         private const val NOTIF_ID = 1
         private const val SOCKS_PORT = 10808
         
-        // آدرس‌های TUN
         private const val TUN_IPV4 = "10.0.0.2"
         private const val TUN_IPV6 = "fd00::2"
         private const val TUN_MTU = 1500
         
-        // DNS
         private val DNS_SERVERS = listOf("1.1.1.1", "8.8.8.8", "9.9.9.9")
         
-        // زمان‌بندی
         private const val STARTUP_DELAY_MS = 1500L
         private const val STATS_INTERVAL_MS = 1000L
         private const val RECONNECT_DELAY_MS = 3000L
     }
 
-    // ========== STATE ==========
+    // ===== همه متغیرها با var =====
     private var tunPfd: ParcelFileDescriptor? = null
     private var coreController: CoreController? = null
     private var statsJob: Job? = null
     private var reconnectJob: Job? = null
-    private val isConnected = AtomicBoolean(false)
-    private val isStarting = AtomicBoolean(false)
+    private var isConnected = AtomicBoolean(false)
+    private var isStarting = AtomicBoolean(false)
     
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
-    // ========== LIFECYCLE ==========
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CONNECT -> {
@@ -92,7 +81,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         super.onDestroy()
     }
 
-    // ========== VPN CORE ==========
     private fun startVpn(link: String) {
         if (isStarting.getAndSet(true)) {
             Log.w(TAG, "VPN is already starting")
@@ -102,19 +90,16 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         Log.d(TAG, "========== STARTING VPN ==========")
         Log.d(TAG, "Link: ${link.take(50)}...")
 
-        // نمایش نوتیفیکیشن
         startForeground(NOTIF_ID, buildNotification("در حال اتصال...", true))
         VpnStatus.reset()
 
         serviceScope.launch {
             try {
-                // ===== 1. ساخت کانفیگ Xray =====
                 val config = withContext(Dispatchers.IO) {
                     XrayConfigBuilder.buildConfig(link, SOCKS_PORT)
                 }
                 Log.d(TAG, "✅ Config built (${config.length} chars)")
 
-                // ===== 2. آماده‌سازی Xray-core =====
                 withContext(Dispatchers.IO) {
                     try {
                         Libv2ray.initCoreEnv(filesDir.absolutePath, "")
@@ -125,7 +110,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     }
                 }
 
-                // ===== 3. ساخت TUN interface =====
                 val builder = Builder()
                     .setSession("SchnellVPN")
                     .setMtu(TUN_MTU)
@@ -136,7 +120,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     .setBlocking(true)
                     .setUnderlyingNetworks(null)
 
-                // اضافه کردن DNS ها
                 DNS_SERVERS.forEach { dns ->
                     builder.addDnsServer(dns)
                 }
@@ -157,7 +140,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 val tunFd = tunPfd!!.fd
                 Log.d(TAG, "✅ TUN interface created (fd=$tunFd)")
 
-                // ===== 4. شروع Xray-core =====
                 coreController = CoreController(this@SchnellVpnService)
                 val startResult = withContext(Dispatchers.IO) {
                     try {
@@ -174,11 +156,9 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 }
                 Log.d(TAG, "✅ Xray-core started")
 
-                // ===== 5. انتظار برای آماده‌سازی =====
                 delay(STARTUP_DELAY_MS)
                 Log.d(TAG, "✅ Xray-core ready")
 
-                // ===== 6. شروع HevSocks5Tunnel =====
                 val hevConfig = createHevConfig()
                 Log.d(TAG, "Hev config: ${hevConfig.absolutePath}")
 
@@ -196,7 +176,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 }
                 Log.d(TAG, "✅ HevBridge started")
 
-                // ===== 7. به‌روزرسانی وضعیت =====
                 isConnected.set(true)
                 VpnStatus.isConnected.value = true
                 VpnStatus.connectStartMillis.value = System.currentTimeMillis()
@@ -207,10 +186,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
                 Log.d(TAG, "========== VPN CONNECTED ✅ ==========")
 
-                // ===== 8. شروع دریافت آمار =====
                 startStatsCollection()
-
-                // ===== 9. شروع مانیتورینگ اتصال =====
                 startConnectionMonitor()
 
             } catch (e: Exception) {
@@ -221,7 +197,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     updateNotification("❌ خطا: ${e.message}", false)
                 }
 
-                // تلاش مجدد بعد از ۳ ثانیه
                 delay(RECONNECT_DELAY_MS)
                 if (isConnected.get()) {
                     Log.d(TAG, "Attempting reconnect...")
@@ -242,7 +217,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         Log.d(TAG, "========== STOPPING VPN ==========")
 
         serviceScope.launch {
-            // ===== 1. توقف HevBridge =====
             try {
                 HevBridge.stopService()
                 Log.d(TAG, "✅ HevBridge stopped")
@@ -250,7 +224,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 Log.w(TAG, "HevBridge stop error: ${e.message}")
             }
 
-            // ===== 2. توقف Xray-core =====
             try {
                 coreController?.stopLoop()
                 Log.d(TAG, "✅ Xray-core stopped")
@@ -258,7 +231,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 Log.w(TAG, "Xray stop error: ${e.message}")
             }
 
-            // ===== 3. بستن TUN =====
             try {
                 tunPfd?.close()
                 Log.d(TAG, "✅ TUN closed")
@@ -266,7 +238,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 Log.w(TAG, "TUN close error: ${e.message}")
             }
 
-            // ===== 4. پاکسازی متغیرها =====
             tunPfd = null
             coreController = null
             statsJob?.cancel()
@@ -274,7 +245,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             reconnectJob?.cancel()
             reconnectJob = null
 
-            // ===== 5. به‌روزرسانی وضعیت =====
             VpnStatus.isConnected.value = false
             VpnStatus.reset()
             isConnected.set(false)
@@ -288,7 +258,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         }
     }
 
-    // ========== RECONNECT ==========
     private fun startReconnect(link: String) {
         reconnectJob?.cancel()
         reconnectJob = serviceScope.launch {
@@ -300,7 +269,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         }
     }
 
-    // ========== STATS COLLECTION ==========
     private fun startStatsCollection() {
         statsJob?.cancel()
         statsJob = serviceScope.launch {
@@ -309,8 +277,8 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 try {
                     val stats = HevBridge.getStats()
                     if (stats != null && stats.size >= 4) {
-                        VpnStatus.txBytes.value = stats[1]  // upload
-                        VpnStatus.rxBytes.value = stats[3]  // download
+                        VpnStatus.txBytes.value = stats[1]
+                        VpnStatus.rxBytes.value = stats[3]
                     }
                 } catch (e: Exception) {
                     // ignore
@@ -320,14 +288,11 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         }
     }
 
-    // ========== CONNECTION MONITOR ==========
     private fun startConnectionMonitor() {
-        // می‌توانید ping یا بررسی اتصال اضافه کنید
         serviceScope.launch {
             var consecutiveFailures = 0
             while (isActive && isConnected.get()) {
                 delay(5000L)
-                // بررسی ساده: آیا HevBridge هنوز زنده است؟
                 try {
                     val stats = HevBridge.getStats()
                     if (stats == null) {
@@ -338,7 +303,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                                 updateNotification("🔄 تلاش مجدد...", true)
                             }
                             stopVpn()
-                            // startVpn با لینک ذخیره‌شده
                         }
                     } else {
                         consecutiveFailures = 0
@@ -350,7 +314,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         }
     }
 
-    // ========== HEV CONFIG ==========
     private fun createHevConfig(): File {
         val configFile = File(cacheDir, "hev_config.yml")
         configFile.writeText(
@@ -377,7 +340,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         return configFile
     }
 
-    // ========== NOTIFICATIONS ==========
     private fun buildNotification(text: String, ongoing: Boolean): android.app.Notification {
         val nm = getSystemService(NotificationManager::class.java)
         
@@ -393,7 +355,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             nm.createNotificationChannel(channel)
         }
 
-        // Intent برای باز کردن اپ
         val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
@@ -402,7 +363,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Intent برای قطع اتصال
         val disconnectIntent = Intent(this, SchnellVpnService::class.java).apply {
             action = ACTION_DISCONNECT
         }
@@ -435,7 +395,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         }
     }
 
-    // ========== Xray CALLBACKS ==========
     override fun startup(): Long {
         Log.d(TAG, "Xray callback: startup")
         return 0
