@@ -75,7 +75,6 @@ enum class Tab { HOME, SERVERS, SETTINGS }
 // ============================================================
 class MainActivity : ComponentActivity() {
 
-    // ========== STATE ==========
     private val _servers = MutableStateFlow<List<VpnServer>>(emptyList())
     val servers: StateFlow<List<VpnServer>> = _servers.asStateFlow()
 
@@ -91,18 +90,12 @@ class MainActivity : ComponentActivity() {
     private var addLinkInput by mutableStateOf("")
     private var addLinkLoading by mutableStateOf(false)
 
-    // وضعیت اتصال از VpnStatus
     private val isConnected = VpnStatus.isConnected
-    private val connectStartMillis = VpnStatus.connectStartMillis
-    private val txBytes = VpnStatus.txBytes
-    private val rxBytes = VpnStatus.rxBytes
     private val lastError = VpnStatus.lastError
 
-    // تایمر UI
     private var durationSec by mutableStateOf(0)
     private var dataMB by mutableStateOf(0f)
 
-    // ========== VPN PERMISSION ==========
     private val vpnPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (it.resultCode == RESULT_OK) {
@@ -112,18 +105,14 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-    // ========== LIFECYCLE ==========
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // چک کردن crash قبلی
         checkPreviousCrash()
 
         setContent {
             val colors = if (isDark) DarkColors else LightColors
             val scope = rememberCoroutineScope()
 
-            // ===== تایمر اتصال =====
             LaunchedEffect(isConnected.value) {
                 if (isConnected.value) {
                     durationSec = 0
@@ -136,7 +125,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // ===== نمایش خطاها =====
             LaunchedEffect(lastError.value) {
                 lastError.value?.let { error ->
                     showToast("❌ $error")
@@ -203,7 +191,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // دیالوگ افزودن لینک
                         if (showAddLinkDialog) {
                             AddLinkDialog(
                                 colors = colors,
@@ -215,7 +202,6 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Toast سفارشی
                         toastMessage?.let { msg ->
                             Box(
                                 Modifier
@@ -241,7 +227,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ========== CRASH CHECK ==========
     private fun checkPreviousCrash() {
         val crashFile = File(filesDir, "last_crash.txt")
         if (crashFile.exists()) {
@@ -253,7 +238,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ========== TOAST ==========
     private fun showToast(msg: String) {
         lifecycleScope.launch {
             toastMessage = msg
@@ -262,7 +246,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ========== SUBSCRIPTION IMPORT ==========
     private fun importSubscription(
         scope: kotlinx.coroutines.CoroutineScope,
         link: String,
@@ -315,7 +298,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ========== VPN CONTROL ==========
     private fun toggleConnect(scope: kotlinx.coroutines.CoroutineScope) {
         if (isConnected.value) {
             disconnectVpn()
@@ -368,7 +350,6 @@ class MainActivity : ComponentActivity() {
 // COMPOSE SCREENS
 // ============================================================
 
-// ===== LOGIN SCREEN =====
 @Composable
 fun LoginScreen(
     colors: AppColors,
@@ -387,7 +368,6 @@ fun LoginScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Logo
         Box(
             Modifier
                 .size(74.dp)
@@ -405,7 +385,6 @@ fun LoginScreen(
 
         Spacer(Modifier.height(30.dp))
 
-        // Input
         BasicField(
             colors = colors,
             value = subLink,
@@ -415,7 +394,6 @@ fun LoginScreen(
 
         Spacer(Modifier.height(10.dp))
 
-        // Import Button
         PrimaryButton(
             colors = colors,
             text = if (loading) "⏳ در حال دریافت سرورها..." else "🚀 وارد کردن لینک",
@@ -426,12 +404,10 @@ fun LoginScreen(
         Text("یا", color = colors.textDim, fontSize = 11.5.sp)
         Spacer(Modifier.height(14.dp))
 
-        // QR Scan
         GhostButton(colors, "📷 اسکن QR Code", onClick = onScanQr)
 
         Spacer(Modifier.height(22.dp))
 
-        // Telegram link
         Row {
             Text("کانفیگ نداری؟ ", color = colors.textDim, fontSize = 12.5.sp)
             Text(
@@ -448,7 +424,6 @@ fun LoginScreen(
     }
 }
 
-// ===== HOME SCREEN =====
 @Composable
 fun HomeScreen(
     colors: AppColors,
@@ -465,7 +440,6 @@ fun HomeScreen(
     val ping = server?.pingMs ?: 260
 
     Column(Modifier.fillMaxSize().padding(20.dp)) {
-        // Header
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -487,7 +461,6 @@ fun HomeScreen(
 
         Spacer(Modifier.height(24.dp))
 
-        // Gauge
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             ConnectGauge(
                 colors = colors,
@@ -499,7 +472,6 @@ fun HomeScreen(
 
         Spacer(Modifier.height(26.dp))
 
-        // Server info
         Row(
             Modifier
                 .fillMaxWidth()
@@ -529,13 +501,11 @@ fun HomeScreen(
 
         Spacer(Modifier.height(14.dp))
 
-        // Stats
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatBox(colors, "⏱ مدت اتصال", formatDuration(durationSec), Modifier.weight(1f))
             StatBox(colors, "📊 حجم مصرفی", String.format("%.1f MB", dataMB), Modifier.weight(1f))
         }
 
-        // وضعیت اتصال
         Spacer(Modifier.height(8.dp))
         Text(
             text = if (connected) "🟢 متصل" else "🔴 قطع",
@@ -569,7 +539,6 @@ fun formatDuration(sec: Int): String {
     return String.format("%02d:%02d:%02d", h, m, s)
 }
 
-// ===== CONNECT GAUGE =====
 @Composable
 fun ConnectGauge(
     colors: AppColors,
@@ -600,12 +569,10 @@ fun ConnectGauge(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        // Gauge background
         Canvas(Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2, size.height / 2)
             val radius = size.minDimension / 2
 
-            // Tick marks
             listOf(-120f, -80f, -40f, 0f, 40f, 80f, 120f).forEach { deg ->
                 rotate(degrees = deg, pivot = center) {
                     drawLine(
@@ -618,7 +585,6 @@ fun ConnectGauge(
                 }
             }
 
-            // Needle
             rotate(degrees = settledAngle, pivot = center) {
                 drawLine(
                     color = indicatorColor,
@@ -630,7 +596,6 @@ fun ConnectGauge(
             }
         }
 
-        // Center circle
         Box(
             Modifier
                 .size(176.dp)
@@ -664,7 +629,6 @@ fun ConnectGauge(
     }
 }
 
-// ===== SERVERS SCREEN =====
 @Composable
 fun ServersScreen(
     colors: AppColors,
@@ -761,7 +725,6 @@ fun ServersScreen(
     }
 }
 
-// ===== SETTINGS SCREEN =====
 @Composable
 fun SettingsScreen(
     colors: AppColors,
@@ -775,7 +738,6 @@ fun SettingsScreen(
         Text("⚙ تنظیمات", color = colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(18.dp))
 
-        // Dark mode
         SettingRow(
             colors = colors,
             title = "🌙 حالت تاریک",
@@ -868,7 +830,6 @@ fun AboutRow(colors: AppColors, label: String, value: String) {
     }
 }
 
-// ===== ADD LINK DIALOG =====
 @Composable
 fun AddLinkDialog(
     colors: AppColors,
@@ -908,10 +869,6 @@ fun AddLinkDialog(
         }
     }
 }
-
-// ============================================================
-// COMMON COMPONENTS
-// ============================================================
 
 @Composable
 fun BasicField(
@@ -1012,4 +969,20 @@ fun BottomNav(colors: AppColors, current: Tab, onSelect: (Tab) -> Unit) {
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
         NavItem(colors, "🏠 خانه", current == Tab.HOME) { onSelect(Tab.HOME) }
-        NavItem(colors, "🌍 سرورها", current == Tab.SERVERS) { onSelect
+        NavItem(colors, "🌍 سرورها", current == Tab.SERVERS) { onSelect(Tab.SERVERS) }
+        NavItem(colors, "⚙ تنظیمات", current == Tab.SETTINGS) { onSelect(Tab.SETTINGS) }
+    }
+}
+
+@Composable
+fun NavItem(colors: AppColors, label: String, active: Boolean, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = if (active) colors.amber else colors.textDim,
+        fontSize = 12.sp,
+        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    )
+}
