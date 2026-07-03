@@ -27,13 +27,10 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         private const val CHANNEL_ID = "schnellvpn_service"
         private const val NOTIF_ID = 1
         private const val SOCKS_PORT = 10808
-        
         private const val TUN_IPV4 = "10.0.0.2"
         private const val TUN_IPV6 = "fd00::2"
         private const val TUN_MTU = 1500
-        
         private val DNS_SERVERS = listOf("1.1.1.1", "8.8.8.8", "9.9.9.9")
-        
         private const val STARTUP_DELAY_MS = 1500L
         private const val STATS_INTERVAL_MS = 1000L
         private const val RECONNECT_DELAY_MS = 3000L
