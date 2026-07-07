@@ -36,7 +36,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         private const val RECONNECT_DELAY_MS = 3000L
     }
 
-    // ===== همه متغیرها با var (قابل تغییر) =====
     private var tunPfd: ParcelFileDescriptor? = null
     private var coreController: CoreController? = null
     private var statsJob: Job? = null
@@ -175,6 +174,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
                 isConnected.set(true)
                 VpnStatus.setConnected(true)
+                VpnStatus.setConnectStartMillis(System.currentTimeMillis())
                 
                 withContext(Dispatchers.Main) {
                     updateNotification("🟢 متصل شدید", true)
@@ -187,7 +187,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
             } catch (e: Exception) {
                 Log.e(TAG, "❌ VPN start error: ${e.message}", e)
-                VpnStatus.setError(e.message)
+                VpnStatus.setLastError(e.message ?: "Unknown error")
                 
                 withContext(Dispatchers.Main) {
                     updateNotification("❌ خطا: ${e.message}", false)
@@ -273,7 +273,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 try {
                     val stats = HevBridge.getStats()
                     if (stats != null && stats.size >= 4) {
-                        VpnStatus.updateStats(stats[1], stats[3])
+                        VpnStatus.setTxRx(stats[1], stats[3])
                     }
                 } catch (e: Exception) {
                     // ignore
