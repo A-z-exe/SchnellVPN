@@ -174,8 +174,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 Log.d(TAG, "✅ HevBridge started")
 
                 isConnected.set(true)
-                VpnStatus.isConnected.value = true
-                VpnStatus.connectStartMillis.value = System.currentTimeMillis()
+                VpnStatus.setConnected(true)
                 
                 withContext(Dispatchers.Main) {
                     updateNotification("🟢 متصل شدید", true)
@@ -188,7 +187,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
             } catch (e: Exception) {
                 Log.e(TAG, "❌ VPN start error: ${e.message}", e)
-                VpnStatus.lastError.value = e.message ?: "Unknown error"
+                VpnStatus.setError(e.message ?: "Unknown error")
                 
                 withContext(Dispatchers.Main) {
                     updateNotification("❌ خطا: ${e.message}", false)
@@ -242,7 +241,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             reconnectJob?.cancel()
             reconnectJob = null
 
-            VpnStatus.isConnected.value = false
+            VpnStatus.setConnected(false)
             VpnStatus.reset()
             isConnected.set(false)
 
@@ -274,8 +273,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 try {
                     val stats = HevBridge.getStats()
                     if (stats != null && stats.size >= 4) {
-                        VpnStatus.txBytes.value = stats[1]
-                        VpnStatus.rxBytes.value = stats[3]
+                        VpnStatus.updateStats(stats[1], stats[3])
                     }
                 } catch (e: Exception) {
                     // ignore
