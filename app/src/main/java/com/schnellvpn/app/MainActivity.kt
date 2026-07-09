@@ -99,6 +99,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // بارگذاری سرورها از حافظه
+        val savedServers = ProfileManager.loadServers(this)
+        if (savedServers.isNotEmpty()) {
+            servers.addAll(savedServers)
+            loggedIn = true
+        }
+        val savedId = ProfileManager.loadSelectedServerId(this)
+        if (savedId != -1) selectedServerId = savedId
+        subLink = ProfileManager.loadSubscriptionUrl(this)
+
         setContent {
             // نمایش crash قبلی اگه وجود داشت
             val crashFile = java.io.File(filesDir, "last_crash.txt")
@@ -158,6 +168,7 @@ class MainActivity : ComponentActivity() {
                                             onQueryChange = { searchQuery = it },
                                             onSelect = { id ->
                                                 selectedServerId = id
+                                                ProfileManager.saveSelectedServerId(this@MainActivity, id)
                                                 scope.launch {
                                                     toastText = "سرور انتخاب شد"
                                                     delay(450)
@@ -251,6 +262,9 @@ class MainActivity : ComponentActivity() {
                     servers.addAll(result)
                     selectedServerId = result.first().id
                     loggedIn = true
+                    ProfileManager.saveServers(this@MainActivity, servers.toList())
+                    ProfileManager.saveSelectedServerId(this@MainActivity, selectedServerId)
+                    ProfileManager.saveSubscriptionUrl(this@MainActivity, trimmed)
                     showToast(scope, "${result.size} سرور با موفقیت اضافه شد")
                 } else {
                     val existingLinks = servers.map { it.link }.toSet()
@@ -258,6 +272,8 @@ class MainActivity : ComponentActivity() {
                     val startId = (servers.maxOfOrNull { it.id } ?: 0) + 1
                     newOnes.forEachIndexed { i, s -> servers.add(s.copy(id = startId + i)) }
                     if (selectedServerId == -1 && servers.isNotEmpty()) selectedServerId = servers.first().id
+                    ProfileManager.saveServers(this@MainActivity, servers.toList())
+                    ProfileManager.saveSubscriptionUrl(this@MainActivity, trimmed)
                     showAddLinkDialog = false
                     showToast(scope, if (newOnes.isEmpty()) "همه‌ی این سرورها قبلاً اضافه شده بودن" else "${newOnes.size} سرور جدید اضافه شد")
                 }
