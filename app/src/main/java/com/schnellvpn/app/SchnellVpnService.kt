@@ -10,19 +10,19 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
-import libv2ray.CoreCallbackHandler
-import libv2ray.CoreController
 import libv2ray.Libv2ray
+import libv2ray.V2RayPoint
+import libv2ray.V2RayVPNServiceSupportsSet
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
-class SchnellVpnService : VpnService(), CoreCallbackHandler {
+class SchnellVpnService : VpnService(), V2RayVPNServiceSupportsSet {
 
     companion object {
         const val ACTION_CONNECT = "com.schnellvpn.app.CONNECT"
         const val ACTION_DISCONNECT = "com.schnellvpn.app.DISCONNECT"
         const val EXTRA_LINK = "extra_link"
-        
+
         private const val TAG = "SchnellVPN"
         private const val CHANNEL_ID = "schnellvpn_service"
         private const val NOTIF_ID = 1
@@ -30,32 +30,25 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         private const val TUN_IPV4 = "10.0.0.2"
         private const val TUN_IPV6 = "fd00::2"
         private const val TUN_MTU = 1500
-        private val DNS_SERVERS = listOf("1.1.1.1", "8.8.8.8", "9.9.9.9")
+        private val DNS_SERVERS = listOf("1.1.1.1", "8.8.8.8")
         private const val STARTUP_DELAY_MS = 1500L
         private const val STATS_INTERVAL_MS = 1000L
-        private const val RECONNECT_DELAY_MS = 3000L
     }
 
     private var tunPfd: ParcelFileDescriptor? = null
-    private var coreController: CoreController? = null
+    private var v2rayPoint: V2RayPoint? = null
     private var statsJob: Job? = null
-    private var reconnectJob: Job? = null
     private var isConnected = AtomicBoolean(false)
     private var isStarting = AtomicBoolean(false)
-    
+
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CONNECT -> {
                 val link = intent.getStringExtra(EXTRA_LINK)
-                if (!link.isNullOrEmpty()) {
-                    startVpn(link)
-                } else {
-                    Log.e(TAG, "Link is empty")
-                    stopSelf()
-                }
+                if (!link.isNullOrEmpty()) startVpn(link)
+                else { Log.e(TAG, "Link is empty"); stopSelf() }
             }
             ACTION_DISCONNECT -> stopVpn()
             else -> Log.w(TAG, "Unknown action: ${intent?.action}")
@@ -63,47 +56,187 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         return START_STICKY
     }
 
-    override fun onRevoke() {
-        Log.w(TAG, "VPN revoked by system")
-        stopVpn()
-        super.onRevoke()
-    }
-
-    override fun onDestroy() {
-        Log.d(TAG, "Service destroying")
-        stopVpn()
-        serviceScope.cancel()
-        mainScope.cancel()
-        super.onDestroy()
-    }
+    override fun onRevoke() { stopVpn(); super.onRevoke() }
+    override fun onDestroy() { stopVpn(); serviceScope.cancel(); super.onDestroy() }
 
     private fun startVpn(link: String) {
-        if (isStarting.getAndSet(true)) {
-            Log.w(TAG, "VPN is already starting")
-            return
-        }
-
-        Log.d(TAG, "========== STARTING VPN ==========")
-        Log.d(TAG, "Link: ${link.take(50)}...")
+        if (isStarting.getAndSet(true)) return
 
         startForeground(NOTIF_ID, buildNotification("در حال اتصال...", true))
         VpnStatus.reset()
 
         serviceScope.launch {
             try {
+                // ۱. ساخت config
                 val config = withContext(Dispatchers.IO) {
                     XrayConfigBuilder.buildConfig(link, SOCKS_PORT)
                 }
-                Log.d(TAG, "✅ Config built (${config.length} chars)")
+                Log.d(TAG, "✅ Config built")
+
+                // ۲. ساخت TUN interface
+                val builder = Builder()
+                    .setSession("SchnellVPN")
+                    .setMtu(TUN_MTU)
+                    .addAddress(TUN_IPV4, 32)
+                    .addAddress(TUN_IPV6, 64)
+                    .addRoute("0.0.0.0", 0)
+                    .addRoute("::", 0)
+                    .setBlocking(true)
+
+                DNS_SERVERS.forEach { builder.addDnsServer(it) }
+
+                tunPfd = builder.establish()
+                    ?: throw IllegalStateException("TUN establish failed")
+
+                val tunFd = tunPfd!!.fd
+                Log.d(TAG, "✅ TUN created (fd=$tunFd)")
+
+                // ۳. شروع Xray-core با V2RayPoint API
+                val point = Libv2ray.newV2RayPoint(this@SchnellVpnService, false)
+                point.configureFileContent = config
+                point.domainName = "schnellvpn"
 
                 withContext(Dispatchers.IO) {
-                    try {
-                        Libv2ray.initCoreEnv(filesDir.absolutePath, "")
-                        Log.d(TAG, "✅ Xray-core environment initialized")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "initCoreEnv error: ${e.message}")
-                        throw e
+                    point.runLoop(false)
+                }
+                v2rayPoint = point
+                Log.d(TAG, "✅ Xray-core started")
+
+                delay(STARTUP_DELAY_MS)
+
+                // ۴. شروع HevBridge
+                val hevConfig = createHevConfig()
+                val hevStarted = withContext(Dispatchers.IO) {
+                    HevBridge.startService(hevConfig.absolutePath, tunFd)
+                }
+                if (!hevStarted) throw IllegalStateException("HevBridge failed")
+                Log.d(TAG, "✅ HevBridge started")
+
+                isConnected.set(true)
+                VpnStatus.setConnected(true)
+                VpnStatus.setConnectStartMillis(System.currentTimeMillis())
+
+                withContext(Dispatchers.Main) {
+                    updateNotification("🟢 متصل شدید", true)
+                }
+
+                startStatsCollection()
+
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ VPN start error: ${e.message}", e)
+                VpnStatus.setLastError(e.message ?: "Unknown error")
+                withContext(Dispatchers.Main) {
+                    updateNotification("❌ خطا: ${e.message}", false)
+                }
+                cleanupAndStop()
+            } finally {
+                isStarting.set(false)
+            }
+        }
+    }
+
+    private fun stopVpn() {
+        if (!isConnected.getAndSet(false)) return
+        Log.d(TAG, "Stopping VPN...")
+        serviceScope.launch { cleanupAndStop() }
+    }
+
+    private suspend fun cleanupAndStop() {
+        statsJob?.cancel(); statsJob = null
+
+        try { HevBridge.stopService() } catch (e: Exception) { Log.w(TAG, "Hev stop: ${e.message}") }
+        try { v2rayPoint?.stopLoop(); v2rayPoint = null } catch (e: Exception) { Log.w(TAG, "Xray stop: ${e.message}") }
+        try { tunPfd?.close(); tunPfd = null } catch (e: Exception) { Log.w(TAG, "TUN close: ${e.message}") }
+
+        VpnStatus.setConnected(false)
+        VpnStatus.reset()
+        isConnected.set(false)
+
+        withContext(Dispatchers.Main) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+    }
+
+    private fun startStatsCollection() {
+        statsJob = serviceScope.launch {
+            while (isActive && isConnected.get()) {
+                try {
+                    val stats = HevBridge.getStats()
+                    if (stats != null && stats.size >= 4) {
+                        VpnStatus.setTxRx(stats[1], stats[3])
                     }
+                } catch (_: Exception) {}
+                delay(STATS_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun createHevConfig(): File {
+        val configFile = File(cacheDir, "hev_config.yml")
+        configFile.writeText("""
+            |misc:
+            |  task-stack-size: 20480
+            |  worker-threads: 4
+            |tunnel:
+            |  mtu: $TUN_MTU
+            |  ipv4: $TUN_IPV4
+            |  ipv6: $TUN_IPV6
+            |socks5:
+            |  port: $SOCKS_PORT
+            |  address: '127.0.0.1'
+            |  udp: 'udp'
+            |logging:
+            |  level: warning
+            |  output: /sdcard/hev.log
+        """.trimMargin())
+        return configFile
+    }
+
+    // ========== V2RayVPNServiceSupportsSet ==========
+    override fun getVpnService() = this
+    override fun prepare() = VpnService.prepare(this)
+    override fun shutdown() { stopVpn() }
+    override fun protect(socket: Int) = protect(socket)
+    override fun onEmitStatus(status: Long) {
+        Log.d(TAG, "Xray status: $status")
+    }
+
+    private fun buildNotification(text: String, ongoing: Boolean): android.app.Notification {
+        val nm = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "SchnellVPN", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
+        val pi = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val disconnectPi = PendingIntent.getService(
+            this, 1,
+            Intent(this, SchnellVpnService::class.java).apply { action = ACTION_DISCONNECT },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("SchnellVPN")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setOngoing(ongoing)
+            .setContentIntent(pi)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "قطع", disconnectPi)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
+
+    private fun updateNotification(text: String, ongoing: Boolean) {
+        try {
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIF_ID, buildNotification(text, ongoing))
+        } catch (e: Exception) { Log.w(TAG, "Notif error: ${e.message}") }
+    }
+}                    }
                 }
 
                 val builder = Builder()
