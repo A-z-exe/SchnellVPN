@@ -24,7 +24,7 @@ jobs:
       - name: Install Android NDK 26
         run: sdkmanager --install "ndk;26.3.11579264"
 
-      - name: Clone hev-socks5-tunnel (tun2socks bridge)
+      - name: Clone hev-socks5-tunnel
         run: |
           git clone --recursive https://github.com/heiher/hev-socks5-tunnel \
             app/src/main/jni/hev-socks5-tunnel
@@ -32,15 +32,23 @@ jobs:
       - name: Download libv2ray.aar
         run: |
           mkdir -p app/libs
-          curl -fL -o app/libs/libv2ray.aar \
-            https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.5.9/libv2ray.aar
-          ls -lh app/libs/libv2ray.aar
+          # تلاش با نسخه‌های مختلف
+          for TAG in v26.5.9 v26.5.3 v26.4.25; do
+            echo "Trying $TAG..."
+            curl -fL --retry 3 -o app/libs/libv2ray.aar \
+              "https://github.com/2dust/AndroidLibXrayLite/releases/download/${TAG}/libv2ray.aar" && \
+            SIZE=$(stat -c%s app/libs/libv2ray.aar 2>/dev/null || echo 0) && \
+            echo "Downloaded: ${SIZE} bytes" && \
+            [ "$SIZE" -gt 100000 ] && echo "✅ $TAG OK" && break || \
+            echo "❌ $TAG failed or too small, trying next..."
+          done
+          ls -lh app/libs/libv2ray.aar || (echo "❌ libv2ray.aar not found!" && exit 1)
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug --stacktrace
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
 
