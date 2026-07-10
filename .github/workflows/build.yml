@@ -32,14 +32,8 @@ jobs:
       - name: Download libv2ray.aar
         run: |
           mkdir -p app/libs
-          # دانلود نسخه مشخص که با CoreController سازگار است
           curl -fL -o app/libs/libv2ray.aar \
-            https://github.com/2dust/AndroidLibXrayLite/releases/download/1.0.0/libv2ray.aar
-          # اگه نسخه 1.0.0 نبود، آخرین نسخه را دانلود کن
-          if [ ! -s app/libs/libv2ray.aar ]; then
-            curl -fL -o app/libs/libv2ray.aar \
-              https://github.com/2dust/AndroidLibXrayLite/releases/latest/download/libv2ray.aar
-          fi
+            https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.5.9/libv2ray.aar
           ls -lh app/libs/libv2ray.aar
 
       - name: Make gradlew executable
