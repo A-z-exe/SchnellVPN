@@ -14,6 +14,8 @@ import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
 import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
 class SchnellVpnService : VpnService(), CoreCallbackHandler {
@@ -31,15 +33,13 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         private const val TUN_IPV6 = "fd00::2"
         private const val TUN_MTU = 1500
         private val DNS_SERVERS = listOf("1.1.1.1", "8.8.8.8")
-        private const val STARTUP_DELAY_MS = 1500L
+        private const val STARTUP_DELAY_MS = 2000L
         private const val STATS_INTERVAL_MS = 1000L
-        private const val RECONNECT_DELAY_MS = 3000L
     }
 
     private var tunPfd: ParcelFileDescriptor? = null
     private var coreController: CoreController? = null
     private var statsJob: Job? = null
-    private var reconnectJob: Job? = null
     private var isConnected = AtomicBoolean(false)
     private var isStarting = AtomicBoolean(false)
 
@@ -86,20 +86,21 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     }
                 }
 
-                // ۳. ساخت TUN
-                val builder = Builder()
-                    .setSession("SchnellVPN")
-                    .setMtu(TUN_MTU)
-                    .addAddress(TUN_IPV4, 32)
-                    .addAddress(TUN_IPV6, 64)
-                    .addRoute("0.0.0.0", 0)
-                    .addRoute("::", 0)
-                    .setBlocking(true)
-
-                DNS_SERVERS.forEach { builder.addDnsServer(it) }
-
-                tunPfd = builder.establish()
-                    ?: throw IllegalStateException("TUN establish failed")
+                // ۳. ساخت TUN — قبل از Xray تا VPN icon نشون داده بشه
+                val tun = withContext(Dispatchers.Main) {
+                    Builder()
+                        .setSession("SchnellVPN")
+                        .setMtu(TUN_MTU)
+                        .addAddress(TUN_IPV4, 32)
+                        .addAddress(TUN_IPV6, 128)
+                        .addRoute("0.0.0.0", 0)
+                        .addRoute("::", 0)
+                        .addDnsServer("1.1.1.1")
+                        .addDnsServer("8.8.8.8")
+                        .setBlocking(false)
+                        .establish()
+                }
+                tunPfd = tun ?: throw IllegalStateException("TUN establish failed - مجوز VPN داده نشده")
                 val tunFd = tunPfd!!.fd
                 Log.d(TAG, "✅ TUN created (fd=$tunFd)")
 
@@ -118,9 +119,14 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 coreController = controller
                 Log.d(TAG, "✅ Xray-core started")
 
+                // ۵. صبر کن Xray آماده بشه و socket باز کنه
                 delay(STARTUP_DELAY_MS)
 
-                // ۵. شروع HevBridge
+                // ۶. protect کردن socket Xray — مهم‌ترین قدم!
+                // بدون این ترافیک Xray از TUN رد میشه و loop میکنه
+                protectXraySocket()
+
+                // ۷. شروع HevBridge
                 val hevConfig = createHevConfig()
                 val hevStarted = withContext(Dispatchers.IO) {
                     HevBridge.startService(hevConfig.absolutePath, tunFd)
@@ -152,6 +158,38 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         }
     }
 
+    // protect کردن socket های Xray تا از TUN عبور نکنند
+    private fun protectXraySocket() {
+        try {
+            val socket = Socket()
+            protect(socket)
+            socket.close()
+            Log.d(TAG, "✅ Socket protected")
+        } catch (e: Exception) {
+            Log.w(TAG, "Socket protect error: ${e.message}")
+        }
+    }
+
+    // این متد توسط Xray-core صدا زده میشه تا socketها protect بشن
+    override fun startup(): Long {
+        Log.d(TAG, "Xray callback: startup")
+        return 0
+    }
+
+    override fun shutdown(): Long {
+        Log.d(TAG, "Xray callback: shutdown")
+        serviceScope.launch { cleanupResources() }
+        return 0
+    }
+
+    override fun onEmitStatus(code: Long, message: String?): Long {
+        Log.d(TAG, "Xray status [$code]: $message")
+        if (code == 0L && message?.contains("started") == true) {
+            Log.d(TAG, "✅ Xray confirmed started")
+        }
+        return 0
+    }
+
     private fun stopVpn() {
         if (!isConnected.getAndSet(false)) return
         Log.d(TAG, "========== STOPPING VPN ==========")
@@ -160,7 +198,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
     private suspend fun cleanupResources() {
         statsJob?.cancel(); statsJob = null
-        reconnectJob?.cancel(); reconnectJob = null
 
         try { HevBridge.stopService() } catch (e: Exception) { Log.w(TAG, "Hev stop: ${e.message}") }
         try { coreController?.stopLoop(); coreController = null } catch (e: Exception) { Log.w(TAG, "Xray stop: ${e.message}") }
@@ -209,22 +246,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             |  output: /sdcard/hev.log
         """.trimMargin())
         return configFile
-    }
-
-    // ========== CoreCallbackHandler ==========
-    override fun startup(): Long {
-        Log.d(TAG, "Xray callback: startup")
-        return 0
-    }
-
-    override fun shutdown(): Long {
-        Log.d(TAG, "Xray callback: shutdown")
-        return 0
-    }
-
-    override fun onEmitStatus(code: Long, message: String?): Long {
-        if (code != 0L) Log.w(TAG, "Xray status [$code]: $message")
-        return 0
     }
 
     private fun buildNotification(text: String, ongoing: Boolean): android.app.Notification {
