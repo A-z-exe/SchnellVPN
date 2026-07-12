@@ -24,7 +24,7 @@ jobs:
       - name: Install Android NDK 26
         run: sdkmanager --install "ndk;26.3.11579264"
 
-      - name: Clone hev-socks5-tunnel (tun2socks bridge)
+      - name: Clone hev-socks5-tunnel
         run: |
           git clone --recursive https://github.com/heiher/hev-socks5-tunnel \
             app/src/main/jni/hev-socks5-tunnel
@@ -40,7 +40,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug --stacktrace 2>&1 | tail -50
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
 
