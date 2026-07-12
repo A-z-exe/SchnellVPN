@@ -14,8 +14,6 @@ import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
 import java.io.File
-import java.net.InetSocketAddress
-import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
 class SchnellVpnService : VpnService(), CoreCallbackHandler {
@@ -32,8 +30,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         private const val TUN_IPV4 = "10.0.0.2"
         private const val TUN_IPV6 = "fd00::2"
         private const val TUN_MTU = 1500
-        private val DNS_SERVERS = listOf("1.1.1.1", "8.8.8.8")
-        private const val STARTUP_DELAY_MS = 2000L
         private const val STATS_INTERVAL_MS = 1000L
     }
 
@@ -82,11 +78,11 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                         Libv2ray.initCoreEnv(filesDir.absolutePath, "")
                         Log.d(TAG, "✅ Xray env initialized")
                     } catch (e: Exception) {
-                        Log.w(TAG, "initCoreEnv: ${e.message}")
+                        Log.w(TAG, "initCoreEnv warning: ${e.message}")
                     }
                 }
 
-                // ۳. ساخت TUN — قبل از Xray تا VPN icon نشون داده بشه
+                // ۳. ساخت TUN interface (باید روی Main thread باشه)
                 val tun = withContext(Dispatchers.Main) {
                     Builder()
                         .setSession("SchnellVPN")
@@ -100,39 +96,24 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                         .setBlocking(false)
                         .establish()
                 }
-                tunPfd = tun ?: throw IllegalStateException("TUN establish failed - مجوز VPN داده نشده")
+                tunPfd = tun ?: throw IllegalStateException("TUN establish failed — مجوز VPN داده نشده")
                 val tunFd = tunPfd!!.fd
                 Log.d(TAG, "✅ TUN created (fd=$tunFd)")
 
-                // ۴. شروع Xray-core
+                // ۴. شروع Xray-core با TUN fd
+                // StartLoop(config, tunFd) — Xray مستقیم TUN رو مدیریت میکنه
                 val controller = CoreController(this@SchnellVpnService)
-                val started = withContext(Dispatchers.IO) {
-                    try {
-                        controller.startLoop(config, -1)
-                        true
+                withContext(Dispatchers.IO) {
+                    val err = try {
+                        controller.startLoop(config, tunFd.toLong())
+                        null
                     } catch (e: Exception) {
-                        Log.e(TAG, "Xray startLoop error: ${e.message}")
-                        false
+                        e.message
                     }
+                    if (err != null) throw IllegalStateException("Xray-core error: $err")
                 }
-                if (!started) throw IllegalStateException("Xray-core failed to start")
                 coreController = controller
-                Log.d(TAG, "✅ Xray-core started")
-
-                // ۵. صبر کن Xray آماده بشه و socket باز کنه
-                delay(STARTUP_DELAY_MS)
-
-                // ۶. protect کردن socket Xray — مهم‌ترین قدم!
-                // بدون این ترافیک Xray از TUN رد میشه و loop میکنه
-                protectXraySocket()
-
-                // ۷. شروع HevBridge
-                val hevConfig = createHevConfig()
-                val hevStarted = withContext(Dispatchers.IO) {
-                    HevBridge.startService(hevConfig.absolutePath, tunFd)
-                }
-                if (!hevStarted) throw IllegalStateException("HevBridge failed to start")
-                Log.d(TAG, "✅ HevBridge started")
+                Log.d(TAG, "✅ Xray-core started with TUN fd=$tunFd")
 
                 isConnected.set(true)
                 VpnStatus.setConnected(true)
@@ -158,38 +139,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         }
     }
 
-    // protect کردن socket های Xray تا از TUN عبور نکنند
-    private fun protectXraySocket() {
-        try {
-            val socket = Socket()
-            protect(socket)
-            socket.close()
-            Log.d(TAG, "✅ Socket protected")
-        } catch (e: Exception) {
-            Log.w(TAG, "Socket protect error: ${e.message}")
-        }
-    }
-
-    // این متد توسط Xray-core صدا زده میشه تا socketها protect بشن
-    override fun startup(): Long {
-        Log.d(TAG, "Xray callback: startup")
-        return 0
-    }
-
-    override fun shutdown(): Long {
-        Log.d(TAG, "Xray callback: shutdown")
-        serviceScope.launch { cleanupResources() }
-        return 0
-    }
-
-    override fun onEmitStatus(code: Long, message: String?): Long {
-        Log.d(TAG, "Xray status [$code]: $message")
-        if (code == 0L && message?.contains("started") == true) {
-            Log.d(TAG, "✅ Xray confirmed started")
-        }
-        return 0
-    }
-
     private fun stopVpn() {
         if (!isConnected.getAndSet(false)) return
         Log.d(TAG, "========== STOPPING VPN ==========")
@@ -199,7 +148,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     private suspend fun cleanupResources() {
         statsJob?.cancel(); statsJob = null
 
-        try { HevBridge.stopService() } catch (e: Exception) { Log.w(TAG, "Hev stop: ${e.message}") }
         try { coreController?.stopLoop(); coreController = null } catch (e: Exception) { Log.w(TAG, "Xray stop: ${e.message}") }
         try { tunPfd?.close(); tunPfd = null } catch (e: Exception) { Log.w(TAG, "TUN close: ${e.message}") }
 
@@ -227,25 +175,20 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         }
     }
 
-    private fun createHevConfig(): File {
-        val configFile = File(cacheDir, "hev_config.yml")
-        configFile.writeText("""
-            |misc:
-            |  task-stack-size: 20480
-            |  worker-threads: 4
-            |tunnel:
-            |  mtu: $TUN_MTU
-            |  ipv4: $TUN_IPV4
-            |  ipv6: $TUN_IPV6
-            |socks5:
-            |  port: $SOCKS_PORT
-            |  address: '127.0.0.1'
-            |  udp: 'udp'
-            |logging:
-            |  level: warning
-            |  output: /sdcard/hev.log
-        """.trimMargin())
-        return configFile
+    // ========== CoreCallbackHandler ==========
+    override fun startup(): Long {
+        Log.d(TAG, "✅ Xray callback: startup")
+        return 0
+    }
+
+    override fun shutdown(): Long {
+        Log.d(TAG, "Xray callback: shutdown")
+        return 0
+    }
+
+    override fun onEmitStatus(code: Long, message: String?): Long {
+        Log.d(TAG, "Xray status [$code]: $message")
+        return 0
     }
 
     private fun buildNotification(text: String, ongoing: Boolean): android.app.Notification {
