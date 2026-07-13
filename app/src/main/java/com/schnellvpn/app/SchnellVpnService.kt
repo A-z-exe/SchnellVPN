@@ -105,7 +105,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 val controller = CoreController(this@SchnellVpnService)
                 withContext(Dispatchers.IO) {
                     val err = try {
-                        controller.startLoop(config, tunFd.toLong())
+                        controller.startLoop(config, tunFd)
                         null
                     } catch (e: Exception) {
                         e.message
