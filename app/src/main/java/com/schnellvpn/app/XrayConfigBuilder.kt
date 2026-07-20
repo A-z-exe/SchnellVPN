@@ -29,9 +29,10 @@ object XrayConfigBuilder {
         val root = JSONObject()
 
         // ========== 1. LOG ==========
-        root.put("log", JSONObject().apply {
-            put("loglevel", "warning")
-            put("error", "/sdcard/xray_error.log")
+       root.put("log", JSONObject().apply {
+             put("loglevel", "warning")
+             put("access", "none")
+             put("error", "none")
         })
 
         // ========== 2. INBOUNDS ==========
