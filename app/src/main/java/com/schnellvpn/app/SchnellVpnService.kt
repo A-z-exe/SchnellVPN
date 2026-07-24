@@ -67,6 +67,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     .addDnsServer("8.8.8.8")
                     .addRoute("0.0.0.0", 0)
                     .setMtu(1500)
+                    .addDisallowedApplication(packageName)
 
                 tunPfd = builder.establish()
                     ?: throw IllegalStateException("TUN establish failed")
