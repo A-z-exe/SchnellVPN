@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
+import java.io.File
 
 class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
@@ -51,7 +52,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
         scope.launch {
             try {
-                // 1) لینک -> کانفیگ JSON
+                // 1) کانفیگ JSON
                 val config = XrayConfigBuilder.buildConfig(link, socksPort = SOCKS_PORT)
                 Log.d(TAG, "✅ Config built (${config.length} chars)")
 
@@ -59,7 +60,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 Libv2ray.initCoreEnv(filesDir.absolutePath, "")
                 Log.d(TAG, "✅ Xray env initialized")
 
-                // 3) ساخت TUN
+                // 3) ساخت TUN — اپ خودمون رو استثنا کن تا Xray مستقیم به اینترنت وصل بشه
                 val builder = Builder()
                     .setSession("SchnellVPN")
                     .addAddress(TUN_ADDR, 30)
@@ -74,18 +75,47 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 val tunFd = tunPfd!!.fd
                 Log.d(TAG, "✅ TUN created (fd=$tunFd)")
 
-                // 4) Xray-core با tunFd واقعی — libv2ray خودش پکت‌ها رو از TUN می‌خونه
+                // 4) Xray-core — فقط به عنوان SOCKS proxy روی localhost
+                //    (fd=-1 یعنی Xray خودش TUN نمی‌خونه)
                 coreCtrl = CoreController(this@SchnellVpnService)
-                val result = coreCtrl!!.startLoop(config, tunFd)
-                Log.d(TAG, "✅ Xray-core started with TUN fd=$tunFd, result=$result")
+                coreCtrl!!.startLoop(config, -1)
+                Log.d(TAG, "✅ Xray-core started as SOCKS proxy on port $SOCKS_PORT")
+
+                // 5) کمی صبر تا SOCKS5 listener آماده بشه
+                delay(1500)
+
+                // 6) hev-socks5-tunnel — پل بین TUN و SOCKS5
+                //    پکت‌های خام TUN → SOCKS5 (127.0.0.1:10808) → Xray → سرور
+                val hevConf = File(cacheDir, "hev.yml")
+                hevConf.writeText("""
+                    misc:
+                      task-stack-size: 20480
+                    tunnel:
+                      mtu: 1500
+                      ipv4: $TUN_ADDR
+                    socks5:
+                      port: $SOCKS_PORT
+                      address: '127.0.0.1'
+                      udp: 'udp'
+                """.trimIndent())
+
+                val hevLoaded = HevBridge.load()
+                Log.d(TAG, "HevBridge.load() = $hevLoaded")
+
+                if (hevLoaded) {
+                    val hevOk = HevBridge.startService(hevConf.absolutePath, tunFd)
+                    Log.d(TAG, "HevBridge.startService() = $hevOk")
+                } else {
+                    Log.w(TAG, "⚠️ hev-socks5-tunnel not available — TUN bridge inactive")
+                    VpnStatus.lastError.value = "tun2socks library missing"
+                }
 
                 VpnStatus.isConnected.value = true
                 VpnStatus.connectStartMillis.value = System.currentTimeMillis()
-
                 withContext(Dispatchers.Main) { updateNotif("متصل شدید") }
                 Log.d(TAG, "========== VPN CONNECTED ✅ ==========")
 
-                // 5) polling آمار — اگه libv2ray stats داشت
+                // 7) polling آمار
                 delay(3000)
                 while (isActive && VpnStatus.isConnected.value) {
                     try {
@@ -111,10 +141,10 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         Log.d(TAG, "========== STOPPING VPN ==========")
         scope.launch {
             VpnStatus.isConnected.value = false
-            try { coreCtrl?.stopLoop() } catch (e: Exception) { Log.w(TAG, "Xray stop: ${e.message}") }
-            try { tunPfd?.close() }       catch (e: Exception) { Log.w(TAG, "TUN close: ${e.message}") }
-            tunPfd = null
-            coreCtrl = null
+            HevBridge.stopService()
+            try { coreCtrl?.stopLoop() } catch (e: Exception) { Log.w(TAG, "stop: ${e.message}") }
+            try { tunPfd?.close() }       catch (e: Exception) { Log.w(TAG, "tun: ${e.message}") }
+            tunPfd = null; coreCtrl = null
             VpnStatus.reset()
             withContext(Dispatchers.Main) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -127,7 +157,6 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     override fun onRevoke() { stopVpn(); super.onRevoke() }
     override fun onDestroy() { scope.cancel(); super.onDestroy() }
 
-    // CoreCallbackHandler
     override fun startup(): Long {
         Log.d(TAG, "✅ Xray callback: startup")
         return 0
@@ -145,11 +174,9 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 NotificationChannel(CHANNEL_ID, "SchnellVPN", NotificationManager.IMPORTANCE_LOW)
             )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("SchnellVPN")
-            .setContentText(text)
+            .setContentTitle("SchnellVPN").setContentText(text)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setOngoing(true)
-            .build()
+            .setOngoing(true).build()
     }
 
     private fun updateNotif(text: String) =
