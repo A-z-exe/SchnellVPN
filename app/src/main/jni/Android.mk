@@ -1,2 +1,2 @@
 LOCAL_PATH := $(call my-dir)
-include $(call all-subdir-makefiles)
+include $(LOCAL_PATH)/hev-socks5-tunnel/Android.mk
