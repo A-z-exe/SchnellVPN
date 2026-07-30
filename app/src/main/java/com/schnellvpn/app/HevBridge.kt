@@ -11,49 +11,34 @@ object HevBridge {
         return try {
             System.loadLibrary("hev-socks5-tunnel")
             loaded = true
-            Log.d(TAG, "✅ hev-socks5-tunnel loaded OK")
+            Log.d(TAG, "✅ hev-socks5-tunnel loaded")
             true
         } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "❌ Failed to load hev-socks5-tunnel: ${e.message}")
+            Log.e(TAG, "❌ load failed: ${e.message}")
             false
         }
     }
 
     fun startService(configPath: String, fd: Int): Boolean {
-        if (!load()) {
-            Log.e(TAG, "❌ Cannot start: library not loaded")
-            return false
-        }
+        if (!load()) return false
         return try {
-            TProxyStartService(configPath, fd)
-            Log.d(TAG, "✅ TProxyStartService called (fd=$fd)")
+            hev.htproxy.TProxyService.TProxyStartService(configPath, fd)
             true
         } catch (e: Throwable) {
-            Log.e(TAG, "❌ TProxyStartService failed: ${e.message}", e)
+            Log.e(TAG, "startService failed: ${e.message}")
             false
         }
     }
 
     fun stopService() {
         if (!loaded) return
-        try {
-            TProxyStopService()
-            Log.d(TAG, "✅ TProxyStopService called")
-        } catch (e: Throwable) {
-            Log.e(TAG, "❌ TProxyStopService failed: ${e.message}")
-        }
-        loaded = false
+        try { hev.htproxy.TProxyService.TProxyStopService() }
+        catch (e: Throwable) { Log.e(TAG, "stopService: ${e.message}") }
     }
 
     fun getStats(): LongArray? {
         if (!loaded) return null
-        return try { TProxyGetStats() }
+        return try { hev.htproxy.TProxyService.TProxyGetStats() }
         catch (e: Throwable) { null }
     }
-
-    fun isLoaded(): Boolean = loaded
-
-    @JvmStatic private external fun TProxyStartService(configPath: String, fd: Int)
-    @JvmStatic private external fun TProxyStopService()
-    @JvmStatic private external fun TProxyGetStats(): LongArray
 }
