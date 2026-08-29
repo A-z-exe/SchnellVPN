@@ -1,170 +1,132 @@
 package com.schnellvpn.app
 
 import android.util.Base64
-import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedInputStream
-import java.io.InputStream
 import java.net.HttpURLConnection
-import java.net.URI
 import java.net.URL
 import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 
-/**
- * دانلود و پارس لینک‌های Subscription. این نسخه پایدارتر است و:
- * - تایم‌اوت‌ها و ری‌دایرکت‌ها را بهتر هندل می‌کند
- * - تشخیص Base64 و محتوای خط‌به‌خط قوی‌تر است
- * - خطاها را لاگ می‌کند تا دلایل شکست واضح باشد
- */
 object SubscriptionFetcher {
-    private const val TAG = "SubscriptionFetcher"
 
     fun fetchAndParse(subUrl: String): List<VpnServer> {
-        val raw = try {
-            download(subUrl)
-        } catch (e: Exception) {
-            Log.e(TAG, "download failed: ${e.message}")
-            throw e
+        val raw = downloadText(subUrl).trim()
+
+        // فرمت JSON کامل (v2rayN full config) — آرایه‌ای از کانفیگ‌های کامل
+        if (raw.startsWith("[")) {
+            return parseJsonArray(raw)
         }
 
-        val decoded = decodeIfBase64(raw)
+        // فرمت سنتی — لینک‌های vless:// vmess:// trojan:// ss:// (احتمالاً base64)
+        val decoded = tryBase64Decode(raw) ?: raw
+        return parseLinks(decoded)
+    }
 
-        // Extract lines and also scan for inline links anywhere in the text
-        val lines = decoded.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    // ==================== JSON Array (v2rayN full config) ====================
+    private fun parseJsonArray(json: String): List<VpnServer> {
+        val arr = try { JSONArray(json) } catch (e: Exception) { return emptyList() }
+        val servers = mutableListOf<VpnServer>()
 
-        val protocolRegex = Regex("(?i)(vless://|vmess://|trojan://|ss://)[^\\s]+")
-        val found = mutableListOf<String>()
+        for (i in 0 until arr.length()) {
+            val obj = try { arr.getJSONObject(i) } catch (e: Exception) { continue }
+            val remarks = obj.optString("remarks", "")
 
-        // find explicit protocol occurrences
-        for (line in lines) {
-            protocolRegex.findAll(line).forEach { m ->
-                found.add(m.value)
+            val outbounds = obj.optJSONArray("outbounds") ?: continue
+
+            // پیدا کردن outbound که tag=proxy داره
+            var proxy: JSONObject? = null
+            for (j in 0 until outbounds.length()) {
+                val ob = try { outbounds.getJSONObject(j) } catch (e: Exception) { continue }
+                if (ob.optString("tag") == "proxy") { proxy = ob; break }
             }
-        }
+            if (proxy == null && outbounds.length() > 0) {
+                proxy = try { outbounds.getJSONObject(0) } catch (e: Exception) { null }
+            }
+            proxy ?: continue
 
-        // fallback: if nothing found, try original raw lines that look like links
-        if (found.isEmpty()) {
-            for (line in lines) {
-                if (line.startsWith("vless://") || line.startsWith("vmess://") || line.startsWith("trojan://") || line.startsWith("ss://")) {
-                    found.add(line)
+            val protocol = proxy.optString("protocol", "")
+            val ss = proxy.optJSONObject("streamSettings")
+            val network = ss?.optString("network", "tcp") ?: "tcp"
+            val security = ss?.optString("security", "none") ?: "none"
+
+            val protocolLabel = when (protocol) {
+                "vless" -> when {
+                    security == "reality" -> "VLESS · Reality"
+                    network == "ws" -> "VLESS · WS"
+                    network == "grpc" -> "VLESS · gRPC"
+                    network == "xhttp" -> "VLESS · XHTTP"
+                    else -> "VLESS"
                 }
+                "vmess"       -> "VMess"
+                "trojan"      -> "Trojan"
+                "shadowsocks" -> "Shadowsocks"
+                else          -> protocol.uppercase()
             }
-        }
 
-        val result = mutableListOf<VpnServer>()
-        var idCounter = 1
-        for (link in found) {
+            val address = extractAddress(proxy)
+            val name = remarks.ifEmpty { address.ifEmpty { "Server ${i + 1}" } }
+
+            // کل JSON outbound رو به عنوان link ذخیره می‌کنیم — XrayConfigBuilder مستقیم ازش استفاده می‌کنه
+            servers.add(VpnServer(
+                id = i + 1,
+                flag = "🌐",
+                name = name,
+                protocolLabel = protocolLabel,
+                link = proxy.toString(),
+                pingMs = null
+            ))
+        }
+        return servers
+    }
+
+    private fun extractAddress(outbound: JSONObject): String {
+        val settings = outbound.optJSONObject("settings") ?: return ""
+        return when (outbound.optString("protocol")) {
+            "vless", "vmess" -> settings.optJSONArray("vnext")?.optJSONObject(0)?.optString("address") ?: ""
+            "trojan", "shadowsocks" -> settings.optJSONArray("servers")?.optJSONObject(0)?.optString("address") ?: ""
+            else -> ""
+        }
+    }
+
+    // ==================== لینک‌های سنتی vless:// vmess:// ====================
+    private fun parseLinks(text: String): List<VpnServer> {
+        val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
+            .filter { it.startsWith("vless://") || it.startsWith("vmess://") || it.startsWith("trojan://") || it.startsWith("ss://") }
+
+        return lines.mapIndexedNotNull { index, link ->
             try {
-                val (flag, name, proto) = describeLink(link)
-                result.add(VpnServer(id = idCounter++, flag = flag, name = name, protocolLabel = proto, link = link, pingMs = null))
-            } catch (e: Exception) {
-                Log.w(TAG, "skipping link due to parse error: ${e.message}")
-            }
-        }
+                val scheme = link.substringBefore("://")
+                val remark = runCatching {
+                    URLDecoder.decode(link.substringAfter("#", ""), "UTF-8").trim()
+                }.getOrDefault("")
+                val name = remark.ifEmpty { "Server ${index + 1}" }
 
-        return result
-    }
-
-    private fun download(urlStr: String): String {
-        val url = URL(urlStr)
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 9000
-            readTimeout = 9000
-            instanceFollowRedirects = true
-            requestMethod = "GET"
-            setRequestProperty("User-Agent", "SchnellVPN/1.0")
-            // Some subscription endpoints require Host header or others; keep minimal for now
-        }
-
-        try {
-            val code = conn.responseCode
-            if (code !in 200..299) throw RuntimeException("HTTP $code")
-            conn.inputStream.use { input ->
-                return input.bufferedReader(StandardCharsets.UTF_8).readText()
-            }
-        } finally {
-            try { conn.disconnect() } catch (_: Throwable) {}
-        }
-    }
-
-    private fun decodeIfBase64(body: String): String {
-        val clean = body.trim()
-        if (clean.isEmpty()) return clean
-        // Heuristics: if the body contains newlines but looks like base64 (no spaces, mostly A-Za-z0-9+/=)
-        val candidate = clean.replace("\n", "").replace("\r", "").trim()
-        val isLikelyBase64 = candidate.length > 16 && candidate.matches(Regex("^[A-Za-z0-9+/=\\s]+$"))
-        if (!isLikelyBase64) return clean
-
-        return try {
-            val padded = padBase64(candidate)
-            val decodedBytes = Base64.decode(padded, Base64.DEFAULT)
-            val text = String(decodedBytes, StandardCharsets.UTF_8)
-            if (text.contains("vless://") || text.contains("vmess://") || text.contains("trojan://") || text.contains("ss://")) text else clean
-        } catch (e: Exception) {
-            Log.w(TAG, "base64 decode failed: ${e.message}")
-            clean
-        }
-    }
-
-    private fun describeLink(link: String): Triple<String, String, String> {
-        return when {
-            link.startsWith("vmess://") -> {
-                val raw = link.removePrefix("vmess://")
-                val jsonText = try { String(android.util.Base64.decode(padBase64(raw), Base64.DEFAULT)) } catch (e: Exception) { throw IllegalArgumentException("invalid vmess payload") }
-                val json = JSONObject(jsonText)
-                val remark = json.optString("ps").ifBlank { json.optString("add", "VMess Server") }
-                val net = json.optString("net", "tcp").uppercase()
-                val tls = if (json.optString("tls") == "tls") " · TLS" else ""
-                val (flag, name) = splitFlag(remark)
-                Triple(flag, name, "VMess · $net$tls")
-            }
-            else -> {
-                val uri = try { URI(link) } catch (e: Exception) { throw IllegalArgumentException("malformed uri") }
-                val remark = uri.rawFragment?.let { URLDecoder.decode(it, "UTF-8") } ?: uri.host ?: "سرور"
-                val rawQuery = uri.rawQuery ?: ""
-                val params = rawQuery.split("&").mapNotNull {
-                    val i = it.indexOf("=")
-                    if (i < 0) null else it.substring(0, i) to URLDecoder.decode(it.substring(i + 1), "UTF-8")
-                }.toMap()
-
-                val proto = when {
-                    link.startsWith("vless://") -> "VLESS" + when {
-                        params["security"] == "reality" -> " · Reality"
-                        params["type"] == "ws" -> " · WS"
-                        params["type"] == "grpc" -> " · gRPC"
-                        else -> ""
-                    }
-                    link.startsWith("trojan://") -> "Trojan" + if (params["type"] == "ws") " · WS" else ""
-                    link.startsWith("ss://") -> "Shadowsocks"
-                    else -> "نامشخص"
+                val protocolLabel = when (scheme) {
+                    "vless" -> if (link.contains("security=reality")) "VLESS · Reality" else "VLESS"
+                    "vmess" -> "VMess"
+                    "trojan" -> "Trojan"
+                    "ss" -> "Shadowsocks"
+                    else -> scheme.uppercase()
                 }
-                val (flag, name) = splitFlag(remark)
-                Triple(flag, name, proto)
-            }
+
+                VpnServer(id = index + 1, flag = "🌐", name = name, protocolLabel = protocolLabel, link = link, pingMs = null)
+            } catch (e: Exception) { null }
         }
     }
 
-    private fun padBase64(s: String): String {
-        val clean = s.trim()
-        val mod = clean.length % 4
-        return if (mod == 0) clean else clean + "=".repeat(4 - mod)
+    private fun downloadText(urlStr: String): String {
+        val conn = URL(urlStr).openConnection() as HttpURLConnection
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        conn.setRequestProperty("User-Agent", "SchnellVPN/1.0")
+        return try { conn.inputStream.bufferedReader().readText() } finally { conn.disconnect() }
     }
 
-    private fun splitFlag(remark: String): Pair<String, String> {
-        if (remark.isEmpty()) return "🌐" to "سرور"
+    private fun tryBase64Decode(text: String): String? {
         return try {
-            val cps = remark.codePoints().toArray()
-            if (cps.size >= 2 && cps[0] in 0x1F1E6..0x1F1FF && cps[1] in 0x1F1E6..0x1F1FF) {
-                val flag = String(cps, 0, 2)
-                val rest = String(cps, 2, cps.size - 2).trim().trim('-', '·', ' ')
-                flag to rest.ifEmpty { remark }
-            } else {
-                "🌐" to remark
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "splitFlag failed: ${e.message}")
-            "🌐" to remark
-        }
+            val clean = text.trim().replace("\n", "").replace("\r", "").replace(" ", "")
+            val result = String(Base64.decode(clean, Base64.DEFAULT))
+            if (result.contains("://")) result else null
+        } catch (e: Exception) { null }
     }
 }
