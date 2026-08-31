@@ -52,15 +52,12 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
         scope.launch {
             try {
-                // 1) کانفیگ JSON
                 val config = XrayConfigBuilder.buildConfig(link, socksPort = SOCKS_PORT)
                 Log.d(TAG, "✅ Config built (${config.length} chars)")
 
-                // 2) آماده‌سازی Xray
                 Libv2ray.initCoreEnv(filesDir.absolutePath, "")
                 Log.d(TAG, "✅ Xray env initialized")
 
-                // 3) ساخت TUN — اپ خودمون رو استثنا کن تا Xray مستقیم به اینترنت وصل بشه
                 val builder = Builder()
                     .setSession("SchnellVPN")
                     .addAddress(TUN_ADDR, 30)
@@ -75,17 +72,12 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 val tunFd = tunPfd!!.fd
                 Log.d(TAG, "✅ TUN created (fd=$tunFd)")
 
-                // 4) Xray-core — فقط به عنوان SOCKS proxy روی localhost
-                //    (fd=-1 یعنی Xray خودش TUN نمی‌خونه)
                 coreCtrl = CoreController(this@SchnellVpnService)
                 coreCtrl!!.startLoop(config, -1)
                 Log.d(TAG, "✅ Xray-core started as SOCKS proxy on port $SOCKS_PORT")
 
-                // 5) کمی صبر تا SOCKS5 listener آماده بشه
                 delay(1500)
 
-                // 6) hev-socks5-tunnel — پل بین TUN و SOCKS5
-                //    پکت‌های خام TUN → SOCKS5 (127.0.0.1:10808) → Xray → سرور
                 val hevConf = File(cacheDir, "hev.yml")
                 hevConf.writeText("""
                     misc:
@@ -106,8 +98,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     val hevOk = HevBridge.startService(hevConf.absolutePath, tunFd)
                     Log.d(TAG, "HevBridge.startService() = $hevOk")
                 } else {
-                    Log.w(TAG, "⚠️ hev-socks5-tunnel not available — TUN bridge inactive")
-                    VpnStatus.lastError.value = "tun2socks library missing"
+                    Log.w(TAG, "⚠️ hev-socks5-tunnel not available")
                 }
 
                 VpnStatus.isConnected.value = true
@@ -115,15 +106,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 withContext(Dispatchers.Main) { updateNotif("متصل شدید") }
                 Log.d(TAG, "========== VPN CONNECTED ✅ ==========")
 
-                // 7) polling آمار
-                delay(3000)
                 while (isActive && VpnStatus.isConnected.value) {
-                    try {
-                        val tx = coreCtrl?.queryStats("proxy", "uplink") ?: 0L
-                        val rx = coreCtrl?.queryStats("proxy", "downlink") ?: 0L
-                        VpnStatus.txBytes.value = tx
-                        VpnStatus.rxBytes.value = rx
-                    } catch (_: Throwable) {}
                     delay(1000)
                 }
 
