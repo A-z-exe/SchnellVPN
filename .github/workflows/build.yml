@@ -5,6 +5,12 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  LIBV2RAY_VERSION: v26.8.20
+  # بعد از اولین build موفق با این ورژن، هش چاپ‌شده در summary رو اینجا بذار
+  # تا از این به بعد هر تغییری در فایل آپ‌استریم، build رو fail کنه:
+  LIBV2RAY_SHA256: ""
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,34 +30,39 @@ jobs:
       - name: Install Android NDK 26
         run: sdkmanager --install "ndk;26.3.11579264"
 
-      - name: Clone hev-socks5-tunnel
-        run: |
-          git clone --recursive https://github.com/heiher/hev-socks5-tunnel \
-            app/src/main/jni/hev-socks5-tunnel
-
-      - name: Download libv2ray.aar
+      - name: Download libv2ray.aar (pinned)
         run: |
           mkdir -p app/libs
           curl -fL -o app/libs/libv2ray.aar \
-            https://github.com/2dust/AndroidLibXrayLite/releases/latest/download/libv2ray.aar
+            "https://github.com/2dust/AndroidLibXrayLite/releases/download/${LIBV2RAY_VERSION}/libv2ray.aar"
           ls -lh app/libs/libv2ray.aar
+          ACTUAL=$(sha256sum app/libs/libv2ray.aar | cut -d' ' -f1)
+          echo "libv2ray ${LIBV2RAY_VERSION} sha256: ${ACTUAL}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${LIBV2RAY_SHA256}" ]; then
+            if [ "${ACTUAL}" != "${LIBV2RAY_SHA256}" ]; then
+              echo "::error::libv2ray.aar checksum mismatch! File changed upstream."
+              exit 1
+            fi
+          fi
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
+      - name: Clone hev-socks5-tunnel
+        run: |
+          mkdir -p app/src/main/jni
+          git clone --recursive --depth 1 \
+            https://github.com/heiher/hev-socks5-tunnel \
+            app/src/main/jni/hev-socks5-tunnel
+          cd app/src/main/jni/hev-socks5-tunnel
+          echo "hev-socks5-tunnel @ $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug || true
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
-
-      - name: Find APK
-        run: find . -name "*.apk" -type f
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.3.11579264"
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: SchnellVPN-debug-apk
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            **/build/outputs/apk/**/*.apk
-          if-no-files-found: warn
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
