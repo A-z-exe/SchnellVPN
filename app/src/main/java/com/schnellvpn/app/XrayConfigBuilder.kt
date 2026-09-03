@@ -28,7 +28,7 @@ object XrayConfigBuilder {
         })
 
         root.put("inbounds", JSONArray().put(JSONObject().apply {
-            put("tag", "socks"); put("port", socksPort); put("listen", "0.0.0.0")
+            put("tag", "socks"); put("port", socksPort); put("listen", "127.0.0.1")
             put("protocol", "socks")
             put("sniffing", JSONObject().apply {
                 put("enabled", true)
