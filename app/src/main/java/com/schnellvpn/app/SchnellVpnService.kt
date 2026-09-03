@@ -115,7 +115,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 controller = CoreController(this@SchnellVpnService)
                 withContext(Dispatchers.IO) {
                     try {
-                        controller!!.startLoop(config)
+                        controller!!.startLoop(config, tunFd)
                     } catch (e: Exception) {
                         throw IllegalStateException("Xray-core error: ${e.message}")
                     }
