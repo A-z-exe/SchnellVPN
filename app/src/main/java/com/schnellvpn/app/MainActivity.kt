@@ -41,6 +41,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -91,10 +93,24 @@ class MainActivity : ComponentActivity() {
     private var addLinkInput by mutableStateOf("")
     private var addLinkLoading by mutableStateOf(false)
 
-    private val vpnPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            actuallyStartVpn()
+    // ==================== مجوز VPN ====================
+    private var pendingLink: String? = null
+
+    private val vpnPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            pendingLink?.let { startVpnService(it) }
+        } else {
+            // کاربر مجوز رو رد کرد (انصراف/دنای)
+            toastText = "مجوز VPN داده نشد — دوباره تلاش کن"
+            lifecycleScope.launch {
+                delay(2600)
+                if (toastText == "مجوز VPN داده نشد — دوباره تلاش کن") toastText = null
+            }
         }
+        pendingLink = null
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -119,6 +135,23 @@ class MainActivity : ComponentActivity() {
             }
             val colors = if (isDark) DarkColors else LightColors
             val scope = rememberCoroutineScope()
+
+            // sync وضعیت اتصال با سرویس — منبع حقیقت: VpnStatus (نه متغیر محلی UI)
+            LaunchedEffect(Unit) {
+                while (true) {
+                    val svc = VpnStatus.isConnected.value
+                    if (connected != svc) {
+                        connected = svc
+                        if (!svc) { connecting = false; durationSec = 0; dataMB = 0f }
+                    }
+                    VpnStatus.lastError.value?.let { err ->
+                        connecting = false
+                        toastText = "خطا: $err"
+                        VpnStatus.setLastError(null)
+                    }
+                    delay(500)
+                }
+            }
 
             // تایمر مدت اتصال و حجم مصرفی، فقط وقتی واقعاً متصلیم
             LaunchedEffect(connected) {
@@ -285,38 +318,49 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ==================== اتصال / قطع VPN ====================
     private fun toggleConnect(scope: kotlinx.coroutines.CoroutineScope) {
-        if (connected) {
+        if (connected || connecting) {
             stopVpn()
             showToast(scope, "اتصال قطع شد")
         } else {
-            requestVpnPermissionAndConnect()
+            val link = servers.find { it.id == selectedServerId }?.link
+            if (link == null) {
+                showToast(scope, "اول یک سرور انتخاب کن")
+            } else {
+                connecting = true
+                connectVpn(link)
+            }
         }
     }
 
-    private fun requestVpnPermissionAndConnect() {
-        val intent = VpnService.prepare(this)
-        if (intent != null) vpnPermissionLauncher.launch(intent) else actuallyStartVpn()
+    private fun connectVpn(link: String) {
+        val prepare = VpnService.prepare(this)
+        if (prepare != null) {
+            // کاربر قبلاً مجوز نداده → دیالوگ سیستم باز می‌شه
+            pendingLink = link
+            vpnPermissionLauncher.launch(prepare)
+        } else {
+            startVpnService(link)
+        }
     }
 
-    private fun actuallyStartVpn() {
-        val link = servers.find { it.id == selectedServerId }?.link ?: return
-        val intent = Intent(this, SchnellVpnService::class.java).apply {
+    private fun startVpnService(link: String) {
+        val i = Intent(this, SchnellVpnService::class.java).apply {
             action = SchnellVpnService.ACTION_CONNECT
             putExtra(SchnellVpnService.EXTRA_LINK, link)
         }
-        startForegroundService(intent)
-        connecting = false
-        connected = true
+        ContextCompat.startForegroundService(this, i)
+        // نکته: connected اینجا true نمی‌شه — LaunchedEffect sync از VpnStatus.isConnected می‌خونه
     }
 
     private fun stopVpn() {
-        val intent = Intent(this, SchnellVpnService::class.java).apply {
+        val i = Intent(this, SchnellVpnService::class.java).apply {
             action = SchnellVpnService.ACTION_DISCONNECT
         }
-        startService(intent)
-        connected = false
+        startService(i)
         connecting = false
+        // connected رو دستی false نمی‌کنیم — sync loop از VpnStatus می‌خونه
     }
 }
 
