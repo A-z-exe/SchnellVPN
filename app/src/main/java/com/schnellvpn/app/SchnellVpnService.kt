@@ -112,9 +112,13 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 // توجه: اگر نسخه‌ی libv2ray تو API سیگنچر startLoop(config, tunFd) داره
                 // (یعنی خودش TUN رو هندل می‌کنه)، این فراخوانی رو با همون جایگزین کن
                 // و مرحله‌ی ۴ رو حذف کن. هر دو نباید هم‌زمان TUN رو هندل کنن!
+                val tun = builder.establish()
+                     ?: throw IllegalStateException("Failed to establish VPN interface")
+                val tunFd = tun.fd
                 controller = CoreController(this@SchnellVpnService)
                 withContext(Dispatchers.IO) {
                     try {
+                        
                         controller!!.startLoop(config, tunFd)
                     } catch (e: Exception) {
                         throw IllegalStateException("Xray-core error: ${e.message}")
