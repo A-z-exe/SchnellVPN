@@ -164,11 +164,16 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
     private fun startStatsCollection() {
         statsJob = serviceScope.launch {
+            var totalTx = 0L
+            var totalRx = 0L
             while (isActive && isConnected.get()) {
                 try {
-                    val tx = coreController?.queryStats("proxy", "uplink") ?: 0L
-                    val rx = coreController?.queryStats("proxy", "downlink") ?: 0L
-                    VpnStatus.setTxRx(tx, rx)
+                    val stats = HevBridge.getStats()
+                    if (stats != null && stats.size >= 4) {
+                        totalTx += stats[1]
+                        totalRx += stats[3]
+                        VpnStatus.setTxRx(totalTx, totalRx)
+                    }
                 } catch (_: Exception) {}
                 delay(STATS_INTERVAL_MS)
             }
