@@ -38,7 +38,9 @@ object HevBridge {
 
     fun getStats(): LongArray? {
         if (!loaded) return null
-        return try { hev.htproxy.TProxyService.TProxyGetStats() }
-        catch (e: Throwable) { null }
-    }
+        return try {
+        // TProxyGetStats معمولاً int[] برمی‌گرداند؛ اگر نسخه‌ی تو long[] است، تبدیل را حذف کن
+        val raw = hev.htproxy.TProxyService.TProxyGetStats() as IntArray
+        LongArray(raw.size) { raw[it].toLong() }
+    } catch (e: Throwable) { null }
 }
