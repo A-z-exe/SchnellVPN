@@ -8,6 +8,7 @@ object HevBridge {
 
     fun load(): Boolean {
         if (loaded) return true
+
         return try {
             System.loadLibrary("hev-socks5-tunnel")
             loaded = true
@@ -21,6 +22,7 @@ object HevBridge {
 
     fun startService(configPath: String, fd: Int): Boolean {
         if (!load()) return false
+
         return try {
             hev.htproxy.TProxyService.TProxyStartService(configPath, fd)
             true
@@ -32,15 +34,25 @@ object HevBridge {
 
     fun stopService() {
         if (!loaded) return
-        try { hev.htproxy.TProxyService.TProxyStopService() }
-        catch (e: Throwable) { Log.e(TAG, "stopService: ${e.message}") }
+
+        try {
+            hev.htproxy.TProxyService.TProxyStopService()
+        } catch (e: Throwable) {
+            Log.e(TAG, "stopService: ${e.message}")
+        }
     }
 
     fun getStats(): LongArray? {
         if (!loaded) return null
+
         return try {
-        // TProxyGetStats معمولاً int[] برمی‌گرداند؛ اگر نسخه‌ی تو long[] است، تبدیل را حذف کن
-        val raw = hev.htproxy.TProxyService.TProxyGetStats() as IntArray
-        LongArray(raw.size) { raw[it].toLong() }
-    } catch (e: Throwable) { null }
+            // TProxyGetStats معمولاً IntArray برمی‌گرداند
+            // اگر نسخه کتابخانه LongArray برگرداند، این تبدیل باید تغییر کند.
+            val raw = hev.htproxy.TProxyService.TProxyGetStats() as IntArray
+            LongArray(raw.size) { raw[it].toLong() }
+        } catch (e: Throwable) {
+            Log.e(TAG, "getStats failed: ${e.message}")
+            null
+        }
+    }
 }
