@@ -52,27 +52,37 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 else { Log.e(TAG, "Link is empty"); stopSelf() }
             }
             ACTION_DISCONNECT -> stopVpn()
-            // START_NOT_STICKY → مسیر null/unknown نباید رخ بده؛ اگر شد، تمیز ببند
-            null -> { stopVpn(); stopSelf() }
-            else -> { Log.w(TAG, "Unknown action: ${intent.action}"); stopSelf() }
+            // START_NOT_STICKY → مسیر null/unknown نباید رخ دهد
+            else -> {
+                if (!isConnected.get() && !isConnecting.get()) stopSelf()
+            }
         }
         return START_NOT_STICKY
     }
 
-    override fun onRevoke() { stopVpn(); super.onRevoke() }
-    override fun onDestroy() { stopVpn(); serviceScope.cancel(); super.onDestroy() }
+    override fun onDestroy() {
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
+    override fun onRevoke() {
+        Log.w(TAG, "VPN revoked by system")
+        stopVpn()
+        super.onRevoke()
+    }
 
     private fun startVpn(link: String) {
-        if (!isConnecting.compareAndSet(false, true)) return
+        if (!isConnecting.compareAndSet(false, true)) {
+            Log.w(TAG, "اتصال در حال انجام است")
+            return
+        }
         disconnectRequested.set(false)
 
-        startForeground(NOTIF_ID, buildNotification("در حال اتصال...", true))
-        VpnStatus.reset()
-
         serviceScope.launch {
-            var controller: CoreController? = null
             try {
-                // ۱. ساخت config
+                Log.d(TAG, "========== VPN CONNECT START ==========")
+
+                // ۱. ساخت کانفیگ Xray
                 val config = withContext(Dispatchers.IO) {
                     XrayConfigBuilder.buildConfig(link, SOCKS_PORT)
                 }
@@ -87,7 +97,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     }
                 }
 
-                // ۳. ساخت TUN interface (باید روی Main thread باشه)
+                // ۳. ساخت TUN interface (باید روی Main thread باشد)
                 val tun = withContext(Dispatchers.Main) {
                     Builder()
                         .setSession("SchnellVPN")
@@ -109,17 +119,13 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 }
 
                 // ۵. شروع Xray-core
-                // توجه: اگر نسخه‌ی libv2ray تو API سیگنچر startLoop(config, tunFd) داره
-                // (یعنی خودش TUN رو هندل می‌کنه)، این فراخوانی رو با همون جایگزین کن
-                // و مرحله‌ی ۴ رو حذف کن. هر دو نباید هم‌زمان TUN رو هندل کنن!
-                val tun = builder.establish()
-                     ?: throw IllegalStateException("Failed to establish VPN interface")
+                // سیگنچر libv2ray: StartLoop(configContent: String, tunFd: Int32)
+                // (اینجا hev خودش TUN را هندل می‌کند و Xray فقط روی SOCKS محلی گوش می‌دهد)
                 val tunFd = tun.fd
-                controller = CoreController(this@SchnellVpnService)
+                val controller = CoreController(this@SchnellVpnService)
                 withContext(Dispatchers.IO) {
                     try {
-                        
-                        controller!!.startLoop(config, tunFd)
+                        controller.startLoop(config, tunFd)
                     } catch (e: Exception) {
                         throw IllegalStateException("Xray-core error: ${e.message}")
                     }
@@ -128,7 +134,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 tunPfd = tun
                 coreController = controller
 
-                // قطع حین اتصال → اینجا cleanup انجام می‌شه
+                // قطع حین اتصال → اینجا cleanup انجام می‌شود
                 if (disconnectRequested.get()) throw CancellationException("Disconnected during connect")
 
                 isConnected.set(true)
@@ -150,7 +156,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 cleanupResources()
             } finally {
                 isConnecting.set(false)
-                // اگر قطع بعد از چک disconnectRequested رخ داده بود، اینجا جبران می‌شه
+                // اگر قطع بعد از چک disconnectRequested رخ داده بود، اینجا جبران می‌شود
                 if (disconnectRequested.get() && isConnected.get()) cleanupResources()
             }
         }
@@ -158,7 +164,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
     private fun stopVpn() {
         disconnectRequested.set(true)
-        // اگر اتصال در جریانه، مسیر catch/finally در startVpn خودش cleanup می‌کنه
+        // اگر اتصال در جریان است، مسیر catch/finally در startVpn خودش cleanup می‌کند
         if (isConnecting.get()) return
         serviceScope.launch { cleanupResources() }
     }
@@ -213,7 +219,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
     private fun startStatsCollection() {
         statsJob = serviceScope.launch {
-            // TProxyGetStats مقادیر «تجمعی» برمی‌گردونه → باید delta حساب بشه، نه جمع مستقیم!
+            // TProxyGetStats مقادیر «تجمعی» برمی‌گرداند → باید delta حساب شود، نه جمع مستقیم!
             var lastUp = -1L
             var lastDown = -1L
             var totalTx = 0L
@@ -222,8 +228,8 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 try {
                     val stats = HevBridge.getStats()
                     if (stats != null && stats.size >= 3) {
-                        val up = stats[1]   // up تجمعی
-                        val down = stats[2] // down تجمعی
+                        val up = stats[1].toLong()   // up تجمعی
+                        val down = stats[2].toLong() // down تجمعی
                         if (lastUp < 0 || up < lastUp || down < lastDown) {
                             lastUp = up; lastDown = down // سشن جدید ریست شده
                         } else {
