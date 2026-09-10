@@ -1,4 +1,4 @@
-# SchnellVPN
+# SchnellVPN ( نسخه تست)
 
 ![Build](https://github.com/A-z-exe/SchnellVPN-/actions/workflows/build.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-Proprietary-blue)
