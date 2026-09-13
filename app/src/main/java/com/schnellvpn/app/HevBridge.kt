@@ -5,6 +5,7 @@ import java.io.File
 
 /**
  * Bridge to the native hev-socks5-tunnel library.
+ *
  * The native lib registers its JNI methods against hev.htproxy.TProxyService,
  * so that class MUST declare every native method the C code expects —
  * including TProxyIsRunning (its absence caused the SIGABRT on load).
@@ -76,15 +77,12 @@ object HevBridge {
         false
     }
 
-    /** Returns [txBytes, rxBytes] or null. Handles both Int/Long array ABIs. */
+    /** Returns [txBytes, rxBytes] or null. Native returns IntArray (JNI sig [I]). */
     fun getStats(): LongArray? {
         if (!loaded) return null
         return try {
-            when (val raw = TProxyService.TProxyGetStats()) {
-                is IntArray -> LongArray(raw.size) { raw[it].toLong() }
-                is LongArray -> raw
-                else -> null
-            }
+            val raw = TProxyService.TProxyGetStats()
+            LongArray(raw.size) { raw[it].toLong() }
         } catch (t: Throwable) {
             Log.e(TAG, "getStats: ${t.message}")
             null
@@ -94,7 +92,8 @@ object HevBridge {
     /** Writes the hev-socks5-tunnel YAML config. */
     fun writeConfig(dir: File, socksPort: Int): File {
         val f = File(dir, "hev.conf")
-        f.writeText("""
+        f.writeText(
+            """
             tunnel:
               name: tun
               mtu: 8500
@@ -104,7 +103,8 @@ object HevBridge {
               udp: 'udp'
             misc:
               log-level: warn
-        """.trimIndent() + "\n")
+            """.trimIndent() + "\n"
+        )
         return f
     }
 }
