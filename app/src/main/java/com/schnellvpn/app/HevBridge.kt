@@ -3,13 +3,7 @@ package com.schnellvpn.app
 import android.util.Log
 import java.io.File
 
-/**
- * Bridge to the native hev-socks5-tunnel library.
- *
- * The native lib registers its JNI methods against hev.htproxy.TProxyService,
- * so that class MUST declare every native method the C code expects —
- * including TProxyIsRunning (its absence caused the SIGABRT on load).
- */
+/** Safe wrapper around the native hev-socks5-tunnel (TUN fd -> local SOCKS5). */
 object HevBridge {
 
     private const val TAG = "HevBridge"
@@ -17,37 +11,15 @@ object HevBridge {
     @Volatile
     private var loaded = false
 
-    /** Must live in package hev.htproxy with exactly these signatures. */
-    class TProxyService {
-        companion object {
-            init {
-                System.loadLibrary("hev-socks5-tunnel")
-            }
-
-            @JvmStatic
-            external fun TProxyStartService(configPath: String, fd: Int)
-
-            @JvmStatic
-            external fun TProxyStopService()
-
-            @JvmStatic
-            external fun TProxyIsRunning(): Boolean
-
-            @JvmStatic
-            external fun TProxyGetStats(): IntArray  // [txBytes, rxBytes]
-        }
-    }
-
-    /** Load the native library once; safe to call multiple times. */
+    /** Loads the native library once; never throws. */
     fun load(): Boolean {
         if (loaded) return true
         return try {
-            // Force class init -> System.loadLibrary -> JNI RegisterNatives
-            Class.forName("hev.htproxy.TProxyService")
+            Class.forName("hev.htproxy.TProxyService") // runs System.loadLibrary + RegisterNatives
             loaded = true
             true
         } catch (t: Throwable) {
-            Log.e(TAG, "load failed: ${t.message}", t)
+            Log.e(TAG, "native load failed: ${t.message}", t)
             false
         }
     }
@@ -55,8 +27,7 @@ object HevBridge {
     fun startService(configPath: String, tunFd: Int): Boolean {
         if (!load()) return false
         return try {
-            TProxyService.TProxyStartService(configPath, tunFd)
-            true
+            hev.htproxy.TProxyService.TProxyStartService(configPath, tunFd)
         } catch (t: Throwable) {
             Log.e(TAG, "TProxyStartService failed: ${t.message}", t)
             false
@@ -64,42 +35,43 @@ object HevBridge {
     }
 
     fun stopService() {
+        if (!loaded) return
         try {
-            if (isRunning()) TProxyService.TProxyStopService()
+            hev.htproxy.TProxyService.TProxyStopService()
         } catch (t: Throwable) {
             Log.w(TAG, "stopService: ${t.message}")
         }
     }
 
-    fun isRunning(): Boolean = try {
-        TProxyService.TProxyIsRunning()
+    fun isRunning(): Boolean = loaded && try {
+        hev.htproxy.TProxyService.TProxyIsRunning()
     } catch (t: Throwable) {
         false
     }
 
-    /** Returns [txBytes, rxBytes] or null. Native returns IntArray (JNI sig [I]). */
+    /** [txPackets, txBytes, rxPackets, rxBytes] or null. */
     fun getStats(): LongArray? {
         if (!loaded) return null
         return try {
-            val raw = TProxyService.TProxyGetStats()
-            LongArray(raw.size) { raw[it].toLong() }
+            hev.htproxy.TProxyService.TProxyGetStats()
         } catch (t: Throwable) {
             Log.e(TAG, "getStats: ${t.message}")
             null
         }
     }
 
-    /** Writes the hev-socks5-tunnel YAML config. */
-    fun writeConfig(dir: File, socksPort: Int): File {
-        val f = File(dir, "hev.conf")
+    /** Always rewrites the config so it can never go stale. */
+    fun writeConfig(dir: File, socksPort: Int, mtu: Int, ipv4: String, ipv6: String): File {
+        val f = File(dir, "hev_tunnel.yml")
         f.writeText(
             """
             tunnel:
-              name: tun
-              mtu: 8500
-              multi-queue: true
+              mtu: $mtu
+              ipv4: $ipv4
+              ipv6: '$ipv6'
             socks5:
-              address: '127.0.0.1:$socksPort'
+              port: $socksPort
+              address: 127.0.0.1
               udp: 'udp'
             misc:
               log-level: warn

@@ -1,85 +1,65 @@
-# SchnellVPN ( نسخه تست)
+# SchnellVPN (نسخه تست)
 
-![Build](https://github.com/A-z-exe/SchnellVPN-/actions/workflows/build.yml/badge.svg)
-![License](https://img.shields.io/badge/license-Proprietary-blue)
+[![Build](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml/badge.svg)](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml)
 ![Platform](https://img.shields.io/badge/platform-Android-green)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
 
-یک کلاینت VPN اختصاصی برای اندروید، با رابط کاربری مدرن و پشتیبانی از پروتکل‌های پرکاربرد امروزی.
-
----
+یک کلاینت VPN برای اندروید با رابط کاربری Jetpack Compose که روی هسته‌ی Xray کار می‌کنه.
 
 ## ✨ ویژگی‌ها
 
-- ✅ رابط کاربری اختصاصی (Jetpack Compose) با حالت تاریک/روشن
-- ✅ پشتیبانی از پروتکل‌ها:
-  - VLESS (+ Reality)
-  - VMess
-  - Trojan
-  - Shadowsocks
-  - gRPC / WebSocket
-- ✅ وارد کردن لینک Subscription
-- ✅ اسکن QR Code
-- ✅ نمایش پینگ زنده‌ی سرورها
-- ✅ اتصال یک‌کلیکی
-- ✅ نمایش مدت اتصال و حجم مصرفی
+- ✅ رابط کاربری Compose با حالت تاریک/روشن
+- ✅ پشتیبانی از لینک‌های: VLESS (TCP / WS / gRPC / HTTPUpgrade / XHTTP، همراه با TLS و Reality)، VMess، Trojan، Shadowsocks
+- ✅ ورود لینک Subscription (لیست ساده، Base64، یا JSON به سبک v2rayN)
+- ✅ تست پینگ واقعی (زمان اتصال TCP به سرور)
+- ✅ اتصال یک‌کلیکی، نمایش مدت اتصال و حجم مصرفی
+- ⏳ اسکن QR Code — هنوز پیاده‌سازی نشده
+- ⚠️ پلاگین‌های Shadowsocks (v2ray-plugin و …) پشتیبانی نمی‌شن؛ این لینک‌ها موقع ورود رد می‌شن.
 
-## 📱 اسکرین‌شات
-
-> *(بعداً اینجا چندتا اسکرین‌شات از اپ بگذار)*
-
-## 🧱 ساختار پروژه
+## 🧱 معماری
 
 ```
-SchnellVPN/
-├── .github/workflows/build.yml     # Build خودکار روی GitHub Actions
-├── app/
-│   ├── build.gradle.kts
-│   └── src/main/
-│       ├── AndroidManifest.xml
-│       └── java/com/schnellvpn/app/
-│           ├── MainActivity.kt          # رابط کاربری (Compose)
-│           ├── SchnellVpnService.kt     # VpnService + اتصال به Xray-core
-│           ├── XrayConfigBuilder.kt     # پارس‌کننده‌ی لینک‌ها (ConfigParser)
-│           └── Server.kt                # مدل داده‌ی سرور
-├── build.gradle.kts
-├── settings.gradle.kts
-└── gradle.properties
+اپ‌ها ─► TUN (VpnService) ─► hev-socks5-tunnel ─► SOCKS 127.0.0.1:10808 ─► Xray-core ─► سرور
 ```
 
-## ⚙️ هسته‌ی شبکه
+- `SchnellVpnService.kt` — VpnService، foreground service، چرخه‌ی اتصال
+- `XrayConfigBuilder.kt` — تبدیل لینک/JSON به کانفیگ Xray
+- `SubscriptionFetcher.kt` — دانلود و پارس Subscription
+- `HevBridge.kt` + `hev/htproxy/TProxyService.kt` — پل JNI به hev-socks5-tunnel
+- `PingTester.kt`, `ProfileManager.kt`, `VpnStatus.kt`, `MainActivity.kt`
 
-این پروژه از کتابخونه‌ی متن‌باز [AndroidLibXrayLite](https://github.com/2dust/AndroidLibXrayLite) (لایسنس LGPL-3.0) برای پیاده‌سازی واقعی پروتکل‌های VLESS/VMess/Trojan/Shadowsocks استفاده می‌کنه. این فایل (`libv2ray.aar`) به‌صورت خودکار توی مرحله‌ی Build از ریلیزهای رسمی همون ریپو دانلود می‌شه — نیازی به آپلود دستیش نیست.
+نکات مهم طراحی (برای جلوگیری از باگ‌های قبلی):
 
-## 🚀 ساخت و اجرا
+1. کلاس JNI باید دقیقاً `hev.htproxy.TProxyService` با امضاهای `(String,Int):Boolean`، `():Boolean`، `():Boolean`، `():LongArray` باشه؛ هر ناهمخوانی یعنی SIGABRT موقع لود.
+2. خود اپ با `addDisallowedApplication` از VPN مستثنی شده، وگرنه ترافیک Xray به TUN برمی‌گرده (حلقه).
+3. `startForegroundService` حتماً باید با `startForeground` جواب داده بشه.
+4. Xray فقط SOCKS محلی باز می‌کنه (`startLoop(config, 0)`)؛ TUN فقط دست hev است.
+5. `hev-socks5-tunnel` روی یک commit ثابت (`HEV_REF` در workflow) پین شده.
 
-### روش ۱ — Build ابری (بدون نیاز به نصب چیزی روی کامپیوتر)
-هر بار که تغییری Commit بشه، GitHub Actions خودش پروژه رو می‌سازه. برای دریافت APK:
-1. برو تب **Actions**
-2. آخرین Workflow موفق (✅ سبز) رو باز کن
-3. از بخش **Artifacts**، فایل APK رو دانلود کن
+## 🚀 ساخت و تست
 
-### روش ۲ — Build محلی (اگه Android Studio نصب داری)
-```bash
-git clone https://github.com/A-z-exe/SchnellVPN-.git
-cd SchnellVPN-
-./gradlew assembleDebug
+### Build ابری (GitHub Actions)
+
+با هر push یا PR، workflow اول **تست‌های واحد** رو اجرا می‌کنه، بعد APK رو می‌سازه و وجود `libhev-socks5-tunnel.so` و `libgojni.so` داخل APK رو چک می‌کنه.
+APK از بخش **Artifacts** همون run قابل دانلوده.
+
+### Build محلی
+
 ```
-خروجی APK اینجا قرار می‌گیره:
-```
-app/build/outputs/apk/debug/app-debug.apk
+git clone https://github.com/A-z-exe/SchnellVPN.git
+cd SchnellVPN
+# libv2ray.aar رو در app/libs/ و hev-socks5-tunnel رو در app/src/main/jni/ بذار (مثل workflow)
+./gradlew testDebugUnitTest assembleDebug
 ```
 
 ## 🔐 تنظیم سرورها
 
-لینک‌های واقعی سرورهات رو توی فایل زیر جایگزین مقدارهای نمونه کن:
-```
-app/src/main/java/com/schnellvpn/app/MainActivity.kt
-```
+لینک Subscription رو در صفحه‌ی ورود وارد کن. لینک‌های `http://` (بدون TLS) به‌صورت پیش‌فرض توسط اندروید مسدوده؛
+این کار عمداً فعال نشده چون یک مهاجم وسط مسیر می‌تونه سرورهای جعلی تزریق کنه.
 
 ## 📄 مجوز
 
-این پروژه برای استفاده‌ی داخلی/تجاری ساخته شده. کتابخونه‌ی `AndroidLibXrayLite` که به‌عنوان dependency استفاده می‌شه، تحت لایسنس **LGPL-3.0** منتشر شده؛ جزئیات رو در [ریپوی اصلی](https://github.com/2dust/AndroidLibXrayLite) ببین.
+کتابخونه‌ی `AndroidLibXrayLite` تحت LGPL-3.0 و `hev-socks5-tunnel` تحت MIT منتشر شده؛ جزئیات در ریپوهای اصلی‌شون.
 
 ## ⚠️ هشدار مسئولیت
 

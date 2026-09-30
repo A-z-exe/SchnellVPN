@@ -1,0 +1,14 @@
+*.iml
+.gradle/
+build/
+local.properties
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+app/libs/libv2ray.aar
+app/src/main/jni/hev-socks5-tunnel/
+*.apk
+*.aab
+*.jks
+*.keystore

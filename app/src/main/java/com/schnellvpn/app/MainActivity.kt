@@ -1,6 +1,9 @@
 package com.schnellvpn.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
@@ -112,8 +115,23 @@ class MainActivity : ComponentActivity() {
         pendingLink = null
     }
 
+    // Android 13+: without this the VPN notification (and its Disconnect button) is hidden.
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* the VPN works either way; nothing to do */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // نمایش crash قبلی (یک‌بار، خارج از composition)
+        val crashFile = java.io.File(filesDir, "last_crash.txt")
+        if (crashFile.exists()) {
+            val msg = runCatching { crashFile.readText().take(400) }.getOrDefault("")
+            crashFile.delete()
+            if (msg.isNotEmpty()) {
+                android.widget.Toast.makeText(this, "Crash: $msg", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
 
         // بارگذاری سرورها از حافظه
         val savedServers = ProfileManager.loadServers(this)
@@ -126,13 +144,6 @@ class MainActivity : ComponentActivity() {
         subLink = ProfileManager.loadSubscriptionUrl(this)
 
         setContent {
-            // نمایش crash قبلی اگه وجود داشت
-            val crashFile = java.io.File(filesDir, "last_crash.txt")
-            if (crashFile.exists()) {
-                val msg = crashFile.readText().take(400)
-                crashFile.delete()
-                android.widget.Toast.makeText(this, "Crash: $msg", android.widget.Toast.LENGTH_LONG).show()
-            }
             val colors = if (isDark) DarkColors else LightColors
             val scope = rememberCoroutineScope()
 
@@ -211,12 +222,17 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             },
                                             onTestPings = {
-                                                for (i in servers.indices) {
-                                                    val s = servers[i]
-                                                    val np = max(18, (s.pingMs ?: 80) + (Math.random() * 30 - 15).toInt())
-                                                    servers[i] = s.copy(pingMs = np)
+                                                scope.launch {
+                                                    showToast(scope, "در حال تست پینگ…")
+                                                    val results = PingTester.pingAll(servers.toList())
+                                                    for (i in servers.indices) {
+                                                        val s = servers[i]
+                                                        servers[i] = s.copy(pingMs = results[s.id])
+                                                    }
+                                                    ProfileManager.saveServers(this@MainActivity, servers.toList())
+                                                    val ok = results.values.count { it != null }
+                                                    showToast(scope, "پینگ: $ok از ${results.size} سرور پاسخ دادند")
                                                 }
-                                                showToast(scope, "پینگ سرورها به‌روزرسانی شد")
                                             },
                                             onImport = { addLinkInput = ""; showAddLinkDialog = true },
                                             onScanQr = { showToast(scope, "اسکن QR هنوز فعال نیست — به‌زودی") }
@@ -227,6 +243,9 @@ class MainActivity : ComponentActivity() {
                                             onToggleDark = { isDark = !isDark },
                                             onLogout = {
                                                 stopVpn()
+                                                ProfileManager.clearServers(this@MainActivity)
+                                                ProfileManager.saveSubscriptionUrl(this@MainActivity, "")
+                                                subLink = ""
                                                 servers.clear()
                                                 selectedServerId = -1
                                                 loggedIn = false
@@ -335,6 +354,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectVpn(link: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         val prepare = VpnService.prepare(this)
         if (prepare != null) {
             // کاربر قبلاً مجوز نداده → دیالوگ سیستم باز می‌شه
@@ -432,7 +456,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit
 ) {
     val server = servers.find { it.id == selectedId }
-    val ping = server?.pingMs ?: 260
+    val ping = server?.pingMs ?: 0
 
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -566,7 +590,7 @@ fun ConnectGauge(colors: AppColors, connected: Boolean, connecting: Boolean, pin
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    if (connected) "$pingMs ms" else if (connecting) "···" else "—",
+                    if (connected) (if (pingMs > 0) "$pingMs ms" else "—") else if (connecting) "···" else "—",
                     color = colors.text, fontSize = 26.sp, fontWeight = FontWeight.Bold
                 )
                 Spacer(Modifier.height(4.dp))

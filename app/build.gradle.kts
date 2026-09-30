@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.schnellvpn.app"
     compileSdk = 34
+    ndkVersion = "26.3.11579264"
 
     defaultConfig {
         applicationId = "com.schnellvpn.app"
@@ -14,14 +15,8 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        externalNativeBuild {
-            ndkBuild {
-                arguments(
-                    "PKGNAME=com/schnellvpn/app",
-                    "CLSNAME=HevBridge"
-                )
-            }
-        }
+        // hev-socks5-tunnel is built with its default JNI class (hev/htproxy/TProxyService),
+        // which is declared in app/src/main/java/hev/htproxy/TProxyService.kt
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
 
@@ -39,6 +34,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    testOptions { unitTests.isReturnDefaultValues = true }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
 }
@@ -51,4 +47,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    testImplementation("junit:junit:4.13.2")
+    // real org.json for JVM unit tests (android.jar only contains throwing stubs)
+    testImplementation("org.json:json:20240303")
 }

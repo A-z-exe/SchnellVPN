@@ -4,6 +4,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -13,7 +14,6 @@ import kotlinx.coroutines.*
 import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
-import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 class SchnellVpnService : VpnService(), CoreCallbackHandler {
@@ -44,23 +44,36 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    override fun onCreate() {
+        super.onCreate()
+        ensureChannel()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CONNECT -> {
+                // The activity uses startForegroundService(): we MUST call startForeground()
+                // within ~5s or Android kills the app (ForegroundServiceDidNotStartInTimeException).
+                enterForeground("در حال اتصال…")
                 val link = intent.getStringExtra(EXTRA_LINK)
-                if (!link.isNullOrEmpty()) startVpn(link)
-                else { Log.e(TAG, "Link is empty"); stopSelf() }
+                if (!link.isNullOrEmpty()) {
+                    startVpn(link)
+                } else {
+                    Log.e(TAG, "Link is empty")
+                    VpnStatus.setLastError("لینک سرور خالی است")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
             ACTION_DISCONNECT -> stopVpn()
-            // START_NOT_STICKY → مسیر null/unknown نباید رخ دهد
-            else -> {
-                if (!isConnected.get() && !isConnecting.get()) stopSelf()
-            }
+            else -> if (!isConnected.get() && !isConnecting.get()) stopSelf()
         }
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        // Best-effort synchronous release in case the system destroys us mid-connection.
+        releaseResources()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -72,8 +85,8 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     }
 
     private fun startVpn(link: String) {
-        if (!isConnecting.compareAndSet(false, true)) {
-            Log.w(TAG, "اتصال در حال انجام است")
+        if (isConnected.get() || !isConnecting.compareAndSet(false, true)) {
+            Log.w(TAG, "Already connected/connecting")
             return
         }
         disconnectRequested.set(false)
@@ -82,22 +95,19 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             try {
                 Log.d(TAG, "========== VPN CONNECT START ==========")
 
-                // ۱. ساخت کانفیگ Xray
-                val config = withContext(Dispatchers.IO) {
-                    XrayConfigBuilder.buildConfig(link, SOCKS_PORT)
-                }
-                Log.d(TAG, "✅ Config built (${config.length} chars)")
+                // 1. Xray config (throws IllegalArgumentException with a readable message)
+                val config = XrayConfigBuilder.buildConfig(link, SOCKS_PORT)
 
-                // ۲. init Xray env
-                withContext(Dispatchers.IO) {
-                    try {
-                        Libv2ray.initCoreEnv(filesDir.absolutePath, "")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "initCoreEnv warning: ${e.message}")
-                    }
+                // 2. Xray environment
+                try {
+                    Libv2ray.initCoreEnv(filesDir.absolutePath, "")
+                } catch (e: Exception) {
+                    Log.w(TAG, "initCoreEnv warning: ${e.message}")
                 }
 
-                // ۳. ساخت TUN interface (باید روی Main thread باشد)
+                // 3. TUN interface.
+                // IMPORTANT: exclude this app from the VPN. Xray's outbound sockets live in this
+                // process; without this they would be routed back into the TUN (routing loop).
                 val tun = withContext(Dispatchers.Main) {
                     Builder()
                         .setSession("SchnellVPN")
@@ -108,41 +118,36 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                         .addRoute("::", 0)
                         .addDnsServer("1.1.1.1")
                         .addDnsServer("8.8.8.8")
-                        .setBlocking(false)
+                        .apply {
+                            try {
+                                addDisallowedApplication(packageName)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "addDisallowedApplication failed: ${e.message}")
+                            }
+                        }
                         .establish()
-                } ?: throw IllegalStateException("TUN establish failed — مجوز VPN داده نشد")
+                } ?: throw IllegalStateException("ساخت TUN ناموفق بود — مجوز VPN داده نشده")
+                tunPfd = tun // keep a reference immediately so cleanup can always close it
 
-                // ۴. شروع hev-socks5-tunnel: فوروارد TUN → SOCKS محلی Xray
-                val hevConf = withContext(Dispatchers.IO) { writeHevConfig() }
-                if (!HevBridge.startService(hevConf.absolutePath, tun.fd)) {
-                    throw IllegalStateException("hev-socks5-tunnel start failed")
-                }
-
-                // ۵. شروع Xray-core
-                // سیگنچر libv2ray: StartLoop(configContent: String, tunFd: Int32)
-                // (اینجا hev خودش TUN را هندل می‌کند و Xray فقط روی SOCKS محلی گوش می‌دهد)
-                val tunFd = tun.fd
+                // 4. Xray-core: local SOCKS5 inbound only. tunFd = 0 → Xray does NOT touch the TUN
+                //    (hev-socks5-tunnel owns it; passing the same fd to both would conflict).
                 val controller = CoreController(this@SchnellVpnService)
-                withContext(Dispatchers.IO) {
-                    try {
-                        controller.startLoop(config, tunFd)
-                    } catch (e: Exception) {
-                        throw IllegalStateException("Xray-core error: ${e.message}")
-                    }
+                coreController = controller
+                controller.startLoop(config, 0)
+
+                // 5. hev-socks5-tunnel: TUN -> 127.0.0.1:SOCKS_PORT
+                val hevConf = HevBridge.writeConfig(filesDir, SOCKS_PORT, TUN_MTU, TUN_IPV4, TUN_IPV6)
+                if (!HevBridge.startService(hevConf.absolutePath, tun.fd)) {
+                    throw IllegalStateException("راه‌اندازی hev-socks5-tunnel ناموفق بود")
                 }
 
-                tunPfd = tun
-                coreController = controller
-
-                // قطع حین اتصال → اینجا cleanup انجام می‌شود
                 if (disconnectRequested.get()) throw CancellationException("Disconnected during connect")
 
                 isConnected.set(true)
                 VpnStatus.setConnected(true)
                 VpnStatus.setConnectStartMillis(System.currentTimeMillis())
-
                 withContext(Dispatchers.Main) { updateNotification("🟢 متصل شدید", true) }
-                Log.d(TAG, "========== VPN CONNECTED ✅ ==========")
+                Log.d(TAG, "========== VPN CONNECTED ==========")
 
                 startStatsCollection()
 
@@ -150,13 +155,11 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 Log.i(TAG, "قطع حین اتصال")
                 cleanupResources()
             } catch (e: Exception) {
-                Log.e(TAG, "❌ VPN error: ${e.message}", e)
+                Log.e(TAG, "VPN error: ${e.message}", e)
                 VpnStatus.setLastError(e.message ?: "Unknown error")
-                withContext(Dispatchers.Main) { updateNotification("❌ خطا: ${e.message}", false) }
                 cleanupResources()
             } finally {
                 isConnecting.set(false)
-                // اگر قطع بعد از چک disconnectRequested رخ داده بود، اینجا جبران می‌شود
                 if (disconnectRequested.get() && isConnected.get()) cleanupResources()
             }
         }
@@ -164,29 +167,29 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
     private fun stopVpn() {
         disconnectRequested.set(true)
-        // اگر اتصال در جریان است، مسیر catch/finally در startVpn خودش cleanup می‌کند
+        // If a connect is in flight, its catch/finally path performs the cleanup.
         if (isConnecting.get()) return
         serviceScope.launch { cleanupResources() }
+    }
+
+    /** Blocking, idempotent release of native resources (safe from any thread). */
+    @Synchronized
+    private fun releaseResources() {
+        statsJob?.cancel(); statsJob = null
+        try { HevBridge.stopService() } catch (e: Exception) { Log.w(TAG, "hev stop: ${e.message}") }
+        try { coreController?.stopLoop() } catch (e: Exception) { Log.w(TAG, "Xray stop: ${e.message}") }
+        coreController = null
+        try { tunPfd?.close() } catch (e: Exception) { Log.w(TAG, "TUN close: ${e.message}") }
+        tunPfd = null
     }
 
     private suspend fun cleanupResources() {
         if (!isCleaning.compareAndSet(false, true)) return
         try {
-            statsJob?.cancel(); statsJob = null
-
-            try { coreController?.stopLoop() } catch (e: Exception) { Log.w(TAG, "Xray stop: ${e.message}") }
-            coreController = null
-
-            HevBridge.stopService()
-
-            try { tunPfd?.close() } catch (e: Exception) { Log.w(TAG, "TUN close: ${e.message}") }
-            tunPfd = null
-
-            VpnStatus.setConnected(false)
-            VpnStatus.reset()
+            releaseResources()
             isConnected.set(false)
-
-            withContext(Dispatchers.Main) {
+            VpnStatus.reset()
+            withContext(NonCancellable + Dispatchers.Main) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -196,70 +199,47 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         }
     }
 
-    private fun writeHevConfig(): File {
-        val f = File(filesDir, "hev_tunnel.yml")
-        if (!f.exists()) {
-            f.writeText(
-                """
-                tunnel:
-                  mtu: 1500
-                  ipv4: 10.0.0.2
-                  ipv6: fd00::2
-                socks5:
-                  address: 127.0.0.1
-                  port: 10808
-                  udp: 'udp'
-                misc:
-                  log-level: warning
-                """.trimIndent()
-            )
-        }
-        return f
-    }
-
     private fun startStatsCollection() {
         statsJob = serviceScope.launch {
-            // TProxyGetStats مقادیر «تجمعی» برمی‌گرداند → باید delta حساب شود، نه جمع مستقیم!
-            var lastUp = -1L
-            var lastDown = -1L
-            var totalTx = 0L
-            var totalRx = 0L
             while (isActive && isConnected.get()) {
-                try {
-                    val stats = HevBridge.getStats()
-                    if (stats != null && stats.size >= 3) {
-                        val up = stats[1].toLong()   // up تجمعی
-                        val down = stats[2].toLong() // down تجمعی
-                        if (lastUp < 0 || up < lastUp || down < lastDown) {
-                            lastUp = up; lastDown = down // سشن جدید ریست شده
-                        } else {
-                            totalTx += up - lastUp
-                            totalRx += down - lastDown
-                            lastUp = up; lastDown = down
-                            VpnStatus.setTxRx(totalTx, totalRx)
-                        }
-                    }
-                } catch (_: Exception) {}
+                // hev: [txPackets, txBytes, rxPackets, rxBytes] (cumulative since start)
+                val s = HevBridge.getStats()
+                if (s != null && s.size >= 4) VpnStatus.setTxRx(s[1], s[3])
                 delay(STATS_INTERVAL_MS)
             }
         }
     }
 
     // ========== CoreCallbackHandler ==========
-    override fun startup(): Long { Log.d(TAG, "✅ Xray callback: startup"); return 0 }
+    override fun startup(): Long { Log.d(TAG, "Xray callback: startup"); return 0 }
     override fun shutdown(): Long { Log.d(TAG, "Xray callback: shutdown"); return 0 }
     override fun onEmitStatus(code: Long, message: String?): Long {
         Log.d(TAG, "Xray status [$code]: $message"); return 0
     }
 
     // ========== Notification ==========
-    private fun buildNotification(text: String, ongoing: Boolean): android.app.Notification {
-        val nm = getSystemService(NotificationManager::class.java)
+    private fun ensureChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(
+            getSystemService(NotificationManager::class.java).createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "SchnellVPN", NotificationManager.IMPORTANCE_LOW)
             )
         }
+    }
+
+    private fun enterForeground(text: String) {
+        val notification = buildNotification(text, true)
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+            } else {
+                startForeground(NOTIF_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "startForeground failed: ${e.message}", e)
+        }
+    }
+
+    private fun buildNotification(text: String, ongoing: Boolean): android.app.Notification {
         val pi = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK },
@@ -285,6 +265,8 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         try {
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIF_ID, buildNotification(text, ongoing))
-        } catch (e: Exception) { Log.w(TAG, "Notif error: ${e.message}") }
+        } catch (e: Exception) {
+            Log.w(TAG, "Notif error: ${e.message}")
+        }
     }
 }

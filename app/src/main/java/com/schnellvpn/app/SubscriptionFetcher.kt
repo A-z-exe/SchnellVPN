@@ -1,132 +1,182 @@
 package com.schnellvpn.app
 
-import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLDecoder
 
+/**
+ * Downloads a subscription and converts it to a list of [VpnServer].
+ * Supported bodies: plain link list, Base64 link list, JSON array / object (v2rayN style).
+ * Only servers that can actually be turned into an Xray outbound are returned.
+ */
 object SubscriptionFetcher {
 
-    fun fetchAndParse(subUrl: String): List<VpnServer> {
-        val raw = downloadText(subUrl).trim()
+    private const val MAX_BYTES = 5 * 1024 * 1024
+    private const val MAX_REDIRECTS = 5
 
-        // فرمت JSON کامل (v2rayN full config) — آرایه‌ای از کانفیگ‌های کامل
-        if (raw.startsWith("[")) {
-            return parseJsonArray(raw)
-        }
+    fun fetchAndParse(subUrl: String): List<VpnServer> = parseContent(downloadText(subUrl))
 
-        // فرمت سنتی — لینک‌های vless:// vmess:// trojan:// ss:// (احتمالاً base64)
-        val decoded = tryBase64Decode(raw) ?: raw
-        return parseLinks(decoded)
+    /** Pure function (no network) — the part covered by unit tests. */
+    fun parseContent(rawInput: String): List<VpnServer> {
+        val raw = rawInput.trim().removePrefix("\uFEFF").trim()
+        if (raw.isEmpty()) return emptyList()
+
+        if (raw.startsWith("[") || raw.startsWith("{")) return parseJson(raw)
+
+        val text = if (containsKnownScheme(raw)) raw else (tryBase64Decode(raw) ?: raw)
+        return parseLinks(text)
     }
 
-    // ==================== JSON Array (v2rayN full config) ====================
-    private fun parseJsonArray(json: String): List<VpnServer> {
-        val arr = try { JSONArray(json) } catch (e: Exception) { return emptyList() }
-        val servers = mutableListOf<VpnServer>()
+    // ---------------------------------------------------------------- JSON
 
+    private fun parseJson(json: String): List<VpnServer> {
+        val arr = try {
+            if (json.startsWith("[")) JSONArray(json) else JSONArray().put(JSONObject(json))
+        } catch (e: Exception) {
+            return emptyList()
+        }
+
+        val servers = mutableListOf<VpnServer>()
         for (i in 0 until arr.length()) {
-            val obj = try { arr.getJSONObject(i) } catch (e: Exception) { continue }
+            val obj = arr.optJSONObject(i) ?: continue
             val remarks = obj.optString("remarks", "")
 
-            val outbounds = obj.optJSONArray("outbounds") ?: continue
-
-            // پیدا کردن outbound که tag=proxy داره
-            var proxy: JSONObject? = null
-            for (j in 0 until outbounds.length()) {
-                val ob = try { outbounds.getJSONObject(j) } catch (e: Exception) { continue }
-                if (ob.optString("tag") == "proxy") { proxy = ob; break }
-            }
-            if (proxy == null && outbounds.length() > 0) {
-                proxy = try { outbounds.getJSONObject(0) } catch (e: Exception) { null }
-            }
-            proxy ?: continue
-
-            val protocol = proxy.optString("protocol", "")
-            val ss = proxy.optJSONObject("streamSettings")
-            val network = ss?.optString("network", "tcp") ?: "tcp"
-            val security = ss?.optString("security", "none") ?: "none"
-
-            val protocolLabel = when (protocol) {
-                "vless" -> when {
-                    security == "reality" -> "VLESS · Reality"
-                    network == "ws" -> "VLESS · WS"
-                    network == "grpc" -> "VLESS · gRPC"
-                    network == "xhttp" -> "VLESS · XHTTP"
-                    else -> "VLESS"
+            val proxy: JSONObject = when {
+                obj.has("protocol") -> obj // the element itself is an outbound
+                else -> {
+                    val outbounds = obj.optJSONArray("outbounds") ?: continue
+                    var found: JSONObject? = null
+                    for (j in 0 until outbounds.length()) {
+                        val ob = outbounds.optJSONObject(j) ?: continue
+                        if (ob.optString("tag") == "proxy") { found = ob; break }
+                    }
+                    found ?: outbounds.optJSONObject(0) ?: continue
                 }
-                "vmess"       -> "VMess"
-                "trojan"      -> "Trojan"
-                "shadowsocks" -> "Shadowsocks"
-                else          -> protocol.uppercase()
             }
+            if (proxy.optString("protocol") in setOf("freedom", "blackhole", "dns", "")) continue
 
-            val address = extractAddress(proxy)
-            val name = remarks.ifEmpty { address.ifEmpty { "Server ${i + 1}" } }
-
-            // کل JSON outbound رو به عنوان link ذخیره می‌کنیم — XrayConfigBuilder مستقیم ازش استفاده می‌کنه
-            servers.add(VpnServer(
-                id = i + 1,
-                flag = "🌐",
-                name = name,
-                protocolLabel = protocolLabel,
-                link = proxy.toString(),
-                pingMs = null
-            ))
+            val link = proxy.toString()
+            val endpoint = XrayConfigBuilder.endpointOf(link) ?: continue
+            val name = remarks.ifEmpty { endpoint.first }
+            servers.add(
+                VpnServer(servers.size + 1, "🌐", name, labelOf(proxy), link, null)
+            )
         }
         return servers
     }
 
-    private fun extractAddress(outbound: JSONObject): String {
-        val settings = outbound.optJSONObject("settings") ?: return ""
-        return when (outbound.optString("protocol")) {
-            "vless", "vmess" -> settings.optJSONArray("vnext")?.optJSONObject(0)?.optString("address") ?: ""
-            "trojan", "shadowsocks" -> settings.optJSONArray("servers")?.optJSONObject(0)?.optString("address") ?: ""
-            else -> ""
-        }
-    }
+    // ---------------------------------------------------------------- links
 
-    // ==================== لینک‌های سنتی vless:// vmess:// ====================
     private fun parseLinks(text: String): List<VpnServer> {
-        val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
-            .filter { it.startsWith("vless://") || it.startsWith("vmess://") || it.startsWith("trojan://") || it.startsWith("ss://") }
+        val seen = HashSet<String>()
+        val servers = mutableListOf<VpnServer>()
 
-        return lines.mapIndexedNotNull { index, link ->
-            try {
-                val scheme = link.substringBefore("://")
-                val remark = runCatching {
-                    URLDecoder.decode(link.substringAfter("#", ""), "UTF-8").trim()
-                }.getOrDefault("")
-                val name = remark.ifEmpty { "Server ${index + 1}" }
+        for (line in text.lines()) {
+            val link = line.trim()
+            if (link.isEmpty() || !startsWithKnownScheme(link)) continue
+            if (!seen.add(link)) continue
 
-                val protocolLabel = when (scheme) {
-                    "vless" -> if (link.contains("security=reality")) "VLESS · Reality" else "VLESS"
-                    "vmess" -> "VMess"
-                    "trojan" -> "Trojan"
-                    "ss" -> "Shadowsocks"
-                    else -> scheme.uppercase()
-                }
+            val outbound = try {
+                XrayConfigBuilder.parseOutbound(link)
+            } catch (e: Exception) {
+                continue // skip links we can't turn into a working config
+            }
 
-                VpnServer(id = index + 1, flag = "🌐", name = name, protocolLabel = protocolLabel, link = link, pingMs = null)
-            } catch (e: Exception) { null }
+            val name = remarkOf(link).ifEmpty {
+                XrayConfigBuilder.endpointOf(link)?.first ?: "Server ${servers.size + 1}"
+            }
+            servers.add(VpnServer(servers.size + 1, "🌐", name, labelOf(outbound), link, null))
+        }
+        return servers
+    }
+
+    private fun remarkOf(link: String): String {
+        if (link.startsWith("vmess://", true)) {
+            val fromJson = runCatching {
+                XrayConfigBuilder.decodeVmessJson(link).optString("ps", "")
+            }.getOrDefault("")
+            if (fromJson.isNotEmpty()) return fromJson.trim()
+        }
+        return XrayConfigBuilder.decodeUrl(link.substringAfter('#', "")).trim()
+    }
+
+    private fun labelOf(outbound: JSONObject): String {
+        val ss = outbound.optJSONObject("streamSettings")
+        val network = ss?.optString("network", "tcp") ?: "tcp"
+        val security = ss?.optString("security", "none") ?: "none"
+        return when (outbound.optString("protocol")) {
+            "vless" -> when {
+                security == "reality" -> "VLESS · Reality"
+                network == "ws" -> "VLESS · WS"
+                network == "grpc" -> "VLESS · gRPC"
+                network == "xhttp" -> "VLESS · XHTTP"
+                else -> "VLESS"
+            }
+            "vmess" -> "VMess"
+            "trojan" -> "Trojan"
+            "shadowsocks" -> "Shadowsocks"
+            else -> outbound.optString("protocol").uppercase()
         }
     }
 
-    private fun downloadText(urlStr: String): String {
-        val conn = URL(urlStr).openConnection() as HttpURLConnection
-        conn.connectTimeout = 10000
-        conn.readTimeout = 10000
-        conn.setRequestProperty("User-Agent", "SchnellVPN/1.0")
-        return try { conn.inputStream.bufferedReader().readText() } finally { conn.disconnect() }
-    }
+    private val schemes = listOf("vless://", "vmess://", "trojan://", "ss://")
+
+    private fun startsWithKnownScheme(s: String) = schemes.any { s.startsWith(it, ignoreCase = true) }
+
+    private fun containsKnownScheme(text: String) =
+        text.lines().any { startsWithKnownScheme(it.trim()) }
 
     private fun tryBase64Decode(text: String): String? {
-        return try {
-            val clean = text.trim().replace("\n", "").replace("\r", "").replace(" ", "")
-            val result = String(Base64.decode(clean, Base64.DEFAULT))
-            if (result.contains("://")) result else null
-        } catch (e: Exception) { null }
+        val decoded = Base64Compat.decodeToString(text) ?: return null
+        return if (containsKnownScheme(decoded)) decoded else null
+    }
+
+    // ---------------------------------------------------------------- network
+
+    private fun downloadText(urlStr: String): String {
+        var current = URL(urlStr.trim())
+        repeat(MAX_REDIRECTS + 1) {
+            if (current.protocol != "http" && current.protocol != "https") {
+                throw IOException("Only http/https links are supported")
+            }
+            val conn = current.openConnection() as HttpURLConnection
+            try {
+                conn.instanceFollowRedirects = false // we follow manually (also http -> https)
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 15_000
+                conn.setRequestProperty("User-Agent", "SchnellVPN/1.0")
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val location = conn.getHeaderField("Location")
+                        ?: throw IOException("Redirect without Location")
+                    current = URL(current, location)
+                    return@repeat
+                }
+                if (code != 200) throw IOException("HTTP $code")
+                return readLimited(conn)
+            } finally {
+                conn.disconnect()
+            }
+        }
+        throw IOException("Too many redirects")
+    }
+
+    private fun readLimited(conn: HttpURLConnection): String {
+        conn.inputStream.use { input ->
+            val out = ByteArrayOutputStream()
+            val chunk = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val n = input.read(chunk)
+                if (n < 0) break
+                total += n
+                if (total > MAX_BYTES) throw IOException("Subscription is too large")
+                out.write(chunk, 0, n)
+            }
+            return out.toString("UTF-8")
+        }
     }
 }
