@@ -9,5 +9,7 @@ data class VpnServer(
     val name: String,
     val protocolLabel: String,
     val link: String,
-    var pingMs: Int? = null
+    var pingMs: Int? = null,
+    /** Where the server came from: the subscription URL, ServerListOps.MANUAL (QR / single link) or "" (older versions). */
+    val source: String = ""
 )

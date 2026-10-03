@@ -17,6 +17,8 @@ object ProfileManager {
     private const val KEY_SUBSCRIPTION_URL = "subscription_url"
     private const val KEY_AUTO_CONNECT = "auto_connect"
     private const val KEY_SELECTED_SERVER_ID = "selected_server_id"
+    private const val KEY_SUBSCRIPTION_URLS = "subscription_urls"
+    private const val KEY_GLASS = "glass_theme"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -33,6 +35,7 @@ object ProfileManager {
                 put("protocolLabel", server.protocolLabel)
                 put("link", server.link)
                 put("pingMs", server.pingMs ?: -1)
+                put("source", server.source)
             }
             array.put(obj)
         }
@@ -55,7 +58,8 @@ object ProfileManager {
                         name = obj.getString("name"),
                         protocolLabel = obj.getString("protocolLabel"),
                         link = obj.getString("link"),
-                        pingMs = obj.getInt("pingMs").takeIf { it >= 0 }
+                        pingMs = obj.getInt("pingMs").takeIf { it >= 0 },
+                        source = obj.optString("source", "")
                     )
                 )
             }
@@ -102,7 +106,44 @@ object ProfileManager {
         return prefs(context).getString(KEY_SUBSCRIPTION_URL, "") ?: ""
     }
 
+    /** همه‌ی لینک‌های اشتراکی ذخیره‌شده (برای دکمه‌ی بروزرسانی). */
+    fun loadSubscriptionUrls(context: Context): List<String> {
+        val raw = prefs(context).getString(KEY_SUBSCRIPTION_URLS, null)
+        if (raw != null) {
+            try {
+                val arr = JSONArray(raw)
+                val list = (0 until arr.length()).map { arr.getString(it) }.filter { it.isNotBlank() }
+                if (list.isNotEmpty()) return list
+            } catch (e: Exception) {
+                // خراب بود → می‌افتیم روی لینک تکی قدیمی
+            }
+        }
+        val legacy = loadSubscriptionUrl(context)
+        return if (legacy.isNotBlank()) listOf(legacy) else emptyList()
+    }
+
+    fun addSubscriptionUrl(context: Context, url: String) {
+        val current = loadSubscriptionUrls(context)
+        if (url in current) return
+        val arr = JSONArray()
+        (current + url).forEach { arr.put(it) }
+        prefs(context).edit().putString(KEY_SUBSCRIPTION_URLS, arr.toString()).apply()
+    }
+
+    fun clearSubscriptionUrls(context: Context) {
+        prefs(context).edit()
+            .remove(KEY_SUBSCRIPTION_URLS)
+            .remove(KEY_SUBSCRIPTION_URL)
+            .apply()
+    }
+
     // ========== تنظیمات ==========
+
+    fun saveGlass(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_GLASS, enabled).apply()
+    }
+
+    fun loadGlass(context: Context): Boolean = prefs(context).getBoolean(KEY_GLASS, true)
 
     fun saveAutoConnect(context: Context, enabled: Boolean) {
         prefs(context).edit()

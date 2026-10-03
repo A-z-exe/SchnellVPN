@@ -24,6 +24,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -46,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -91,6 +95,8 @@ class MainActivity : ComponentActivity() {
     private var searchQuery by mutableStateOf("")
     private var toastText by mutableStateOf<String?>(null)
     private var loginLoading by mutableStateOf(false)
+    private var glass by mutableStateOf(true)
+    private var refreshing by mutableStateOf(false)
 
     private var showAddLinkDialog by mutableStateOf(false)
     private var addLinkInput by mutableStateOf("")
@@ -113,6 +119,18 @@ class MainActivity : ComponentActivity() {
             }
         }
         pendingLink = null
+    }
+
+    // ==================== اسکن QR ====================
+    private val scanLauncher = registerForActivityResult(ScanContract()) { result ->
+        val text = result.contents
+        if (text != null) onQrScanned(text)
+    }
+
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) launchScanner() else showToast(lifecycleScope, "برای اسکن QR باید دسترسی دوربین رو بدی")
     }
 
     // Android 13+: without this the VPN notification (and its Disconnect button) is hidden.
@@ -142,6 +160,7 @@ class MainActivity : ComponentActivity() {
         val savedId = ProfileManager.loadSelectedServerId(this)
         if (savedId != -1) selectedServerId = savedId
         subLink = ProfileManager.loadSubscriptionUrl(this)
+        glass = ProfileManager.loadGlass(this)
 
         setContent {
             val colors = if (isDark) DarkColors else LightColors
@@ -186,7 +205,7 @@ class MainActivity : ComponentActivity() {
                                 loading = loginLoading,
                                 onSubLinkChange = { subLink = it },
                                 onImport = { importSubscription(scope, subLink, isInitialLogin = true) },
-                                onScanQr = { showToast(scope, "اسکن QR هنوز فعال نیست — به‌زودی") }
+                                onScanQr = { startQrScan() }
                             )
                         } else {
                             Column(Modifier.fillMaxSize()) {
@@ -200,6 +219,8 @@ class MainActivity : ComponentActivity() {
                                             connecting = connecting,
                                             durationSec = durationSec,
                                             dataMB = dataMB,
+                                            glass = glass,
+                                            isDark = isDark,
                                             onToggleConnect = { toggleConnect(scope) },
                                             onOpenServers = { currentTab = Tab.SERVERS },
                                             onOpenSettings = { currentTab = Tab.SETTINGS }
@@ -209,6 +230,8 @@ class MainActivity : ComponentActivity() {
                                             servers = servers,
                                             selectedId = selectedServerId,
                                             query = searchQuery,
+                                            refreshing = refreshing,
+                                            onRefresh = { refreshSubscriptions(scope) },
                                             onQueryChange = { searchQuery = it },
                                             onSelect = { id ->
                                                 selectedServerId = id
@@ -235,16 +258,21 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             },
                                             onImport = { addLinkInput = ""; showAddLinkDialog = true },
-                                            onScanQr = { showToast(scope, "اسکن QR هنوز فعال نیست — به‌زودی") }
+                                            onScanQr = { startQrScan() }
                                         )
                                         Tab.SETTINGS -> SettingsScreen(
                                             colors = colors,
                                             isDark = isDark,
                                             onToggleDark = { isDark = !isDark },
+                                            glass = glass,
+                                            onToggleGlass = {
+                                                glass = !glass
+                                                ProfileManager.saveGlass(this@MainActivity, glass)
+                                            },
                                             onLogout = {
                                                 stopVpn()
                                                 ProfileManager.clearServers(this@MainActivity)
-                                                ProfileManager.saveSubscriptionUrl(this@MainActivity, "")
+                                                ProfileManager.clearSubscriptionUrls(this@MainActivity)
                                                 subLink = ""
                                                 servers.clear()
                                                 selectedServerId = -1
@@ -310,24 +338,29 @@ class MainActivity : ComponentActivity() {
                 if (result.isEmpty()) {
                     showToast(scope, "هیچ سرور معتبری توی این لینک پیدا نشد")
                 } else if (isInitialLogin) {
+                    val (numbered, selected) = ServerListOps.renumber(result.map { it.copy(source = trimmed) }, null)
                     servers.clear()
-                    servers.addAll(result)
-                    selectedServerId = result.first().id
+                    servers.addAll(numbered)
+                    selectedServerId = selected
                     loggedIn = true
                     ProfileManager.saveServers(this@MainActivity, servers.toList())
                     ProfileManager.saveSelectedServerId(this@MainActivity, selectedServerId)
+                    ProfileManager.clearSubscriptionUrls(this@MainActivity)
                     ProfileManager.saveSubscriptionUrl(this@MainActivity, trimmed)
+                    ProfileManager.addSubscriptionUrl(this@MainActivity, trimmed)
                     showToast(scope, "${result.size} سرور با موفقیت اضافه شد")
                 } else {
-                    val existingLinks = servers.map { it.link }.toSet()
-                    val newOnes = result.filter { it.link !in existingLinks }
-                    val startId = (servers.maxOfOrNull { it.id } ?: 0) + 1
-                    newOnes.forEachIndexed { i, s -> servers.add(s.copy(id = startId + i)) }
-                    if (selectedServerId == -1 && servers.isNotEmpty()) selectedServerId = servers.first().id
+                    val before = servers.size
+                    val merged = ServerListOps.addUnique(servers.toList(), result, trimmed)
+                    val added = merged.size - before
+                    servers.clear()
+                    servers.addAll(merged)
+                    if (servers.none { it.id == selectedServerId } && servers.isNotEmpty()) selectedServerId = servers.first().id
                     ProfileManager.saveServers(this@MainActivity, servers.toList())
-                    ProfileManager.saveSubscriptionUrl(this@MainActivity, trimmed)
+                    ProfileManager.saveSelectedServerId(this@MainActivity, selectedServerId)
+                    ProfileManager.addSubscriptionUrl(this@MainActivity, trimmed)
                     showAddLinkDialog = false
-                    showToast(scope, if (newOnes.isEmpty()) "همه‌ی این سرورها قبلاً اضافه شده بودن" else "${newOnes.size} سرور جدید اضافه شد")
+                    showToast(scope, if (added == 0) "همه‌ی این سرورها قبلاً اضافه شده بودن" else "$added سرور جدید اضافه شد")
                 }
             } catch (e: Exception) {
                 showToast(scope, "خطا در دریافت لینک: ${e.message ?: "اتصال برقرار نشد"}")
@@ -335,6 +368,115 @@ class MainActivity : ComponentActivity() {
                 if (isInitialLogin) loginLoading = false else addLinkLoading = false
             }
         }
+    }
+
+    // ==================== بروزرسانی اشتراک + پینگ + مرتب‌سازی ====================
+    private fun refreshSubscriptions(scope: kotlinx.coroutines.CoroutineScope) {
+        if (refreshing) return
+        val urls = ProfileManager.loadSubscriptionUrls(this)
+        if (urls.isEmpty()) {
+            showToast(scope, "لینک اشتراکی ذخیره نشده — اول یک لینک اضافه کن")
+            return
+        }
+        scope.launch {
+            refreshing = true
+            try {
+                // ۱) دانلود همه‌ی اشتراک‌ها؛ اشتراکی که دانلودش خراب بشه سرورهای قبلی‌ش رو نگه می‌داره
+                val fetched = LinkedHashMap<String, List<VpnServer>?>()
+                var failures = 0
+                for (url in urls) {
+                    val list = try {
+                        withContext(Dispatchers.IO) { SubscriptionFetcher.fetchAndParse(url) }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    if (list.isNullOrEmpty()) {
+                        failures++
+                        fetched[url] = null
+                    } else {
+                        fetched[url] = list.map { it.copy(source = url) }
+                    }
+                }
+                if (failures == urls.size) {
+                    showToast(scope, "بروزرسانی ناموفق بود — اینترنت یا لینک اشتراک رو چک کن")
+                    return@launch
+                }
+
+                // ۲) ادغام، پینگ واقعی، مرتب‌سازی از کمترین پینگ
+                val selectedLink = servers.find { it.id == selectedServerId }?.link
+                val merged = ServerListOps.mergeRefresh(servers.toList(), fetched)
+                val (numbered, _) = ServerListOps.renumber(merged, selectedLink)
+                val pings = PingTester.pingAll(numbered)
+                val (sorted, newSelected) = ServerListOps.applyPings(numbered, pings, selectedLink)
+
+                servers.clear()
+                servers.addAll(sorted)
+                selectedServerId = newSelected
+                ProfileManager.saveServers(this@MainActivity, servers.toList())
+                ProfileManager.saveSelectedServerId(this@MainActivity, selectedServerId)
+
+                val alive = sorted.count { it.pingMs != null }
+                val note = if (failures > 0) " ($failures لینک دانلود نشد)" else ""
+                showToast(scope, "${sorted.size} سرور بروزرسانی شد؛ $alive تا پاسخ دادن$note")
+            } catch (e: Exception) {
+                showToast(scope, "خطا در بروزرسانی: ${e.message ?: "نامشخص"}")
+            } finally {
+                refreshing = false
+            }
+        }
+    }
+
+    // ==================== اسکن QR ====================
+    private fun startQrScan() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            return
+        }
+        launchScanner()
+    }
+
+    private fun launchScanner() {
+        val options = ScanOptions().apply {
+            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            setPrompt("QR کانفیگ یا لینک اشتراک رو داخل کادر بگیر")
+            setBeepEnabled(false)
+            setOrientationLocked(false)
+        }
+        scanLauncher.launch(options)
+    }
+
+    /** QR می‌تونه لینک اشتراک (https://…) یا یک/چند کانفیگ (vless:// vmess:// trojan:// ss://) باشه. */
+    private fun onQrScanned(raw: String) {
+        val scope = lifecycleScope
+        val text = raw.trim()
+        if (text.isEmpty()) return
+
+        if (text.startsWith("http://", ignoreCase = true) || text.startsWith("https://", ignoreCase = true)) {
+            importSubscription(scope, text, isInitialLogin = !loggedIn)
+            return
+        }
+
+        val parsed = SubscriptionFetcher.parseContent(text)
+        if (parsed.isEmpty()) {
+            showToast(scope, "این QR یک کانفیگ یا لینک اشتراک معتبر نیست")
+            return
+        }
+
+        val before = servers.size
+        val merged = ServerListOps.addUnique(servers.toList(), parsed, ServerListOps.MANUAL)
+        val added = merged.size - before
+        if (added == 0) {
+            showToast(scope, "این کانفیگ قبلاً اضافه شده بود")
+            return
+        }
+
+        servers.clear()
+        servers.addAll(merged)
+        selectedServerId = merged[before].id // اولین سرور جدید رو انتخاب کن تا بشه فوراً وصل شد
+        loggedIn = true
+        ProfileManager.saveServers(this, servers.toList())
+        ProfileManager.saveSelectedServerId(this, selectedServerId)
+        showToast(scope, if (added == 1) "کانفیگ اضافه و انتخاب شد" else "$added کانفیگ اضافه شد")
     }
 
     // ==================== اتصال / قطع VPN ====================
@@ -451,6 +593,8 @@ fun HomeScreen(
     connecting: Boolean,
     durationSec: Int,
     dataMB: Float,
+    glass: Boolean,
+    isDark: Boolean,
     onToggleConnect: () -> Unit,
     onOpenServers: () -> Unit,
     onOpenSettings: () -> Unit
@@ -458,11 +602,12 @@ fun HomeScreen(
     val server = servers.find { it.id == selectedId }
     val ping = server?.pingMs ?: 0
 
-    Column(Modifier.fillMaxSize().padding(20.dp)) {
+    GlassBackground(isDark = isDark, enabled = glass) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("SchnellVPN", color = colors.amber, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Box(
-                Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(colors.surface2).border(1.dp, colors.border, RoundedCornerShape(11.dp)).clickable { onOpenSettings() },
+                Modifier.size(36.dp).panel(colors, glass, isDark, RoundedCornerShape(11.dp), solid = colors.surface2).clickable { onOpenSettings() },
                 contentAlignment = Alignment.Center
             ) { Text("⚙", color = colors.textDim, fontSize = 16.sp) }
         }
@@ -475,6 +620,8 @@ fun HomeScreen(
                 connected = connected,
                 connecting = connecting,
                 pingMs = ping,
+                glass = glass,
+                isDark = isDark,
                 onClick = onToggleConnect
             )
         }
@@ -484,8 +631,7 @@ fun HomeScreen(
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(colors.surface, RoundedCornerShape(18.dp))
-                .border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                .panel(colors, glass, isDark, RoundedCornerShape(18.dp))
                 .clickable { onOpenServers() }
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -503,18 +649,28 @@ fun HomeScreen(
         Spacer(Modifier.height(14.dp))
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatBox(colors, "مدت اتصال", fmtTime(durationSec), Modifier.weight(1f))
-            StatBox(colors, "حجم مصرفی", "${"%.1f".format(dataMB)} MB", Modifier.weight(1f))
+            StatBox(colors, "مدت اتصال", fmtTime(durationSec), Modifier.weight(1f), glass, isDark)
+            StatBox(colors, "حجم مصرفی", "${"%.1f".format(dataMB)} MB", Modifier.weight(1f), glass, isDark)
         }
+
+        Spacer(Modifier.height(14.dp))
+        TopAppsCard(colors, glass, isDark)
+    }
     }
 }
 
 @Composable
-fun StatBox(colors: AppColors, label: String, value: String, modifier: Modifier = Modifier) {
+fun StatBox(
+    colors: AppColors,
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    glass: Boolean = false,
+    isDark: Boolean = true
+) {
     Column(
         modifier
-            .background(colors.surface, RoundedCornerShape(16.dp))
-            .border(1.dp, colors.border, RoundedCornerShape(16.dp))
+            .panel(colors, glass, isDark, RoundedCornerShape(16.dp))
             .padding(13.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -531,7 +687,15 @@ fun fmtTime(sec: Int): String {
 
 // ---- دایره‌ی سرعت‌سنج (همون عنصر شاخص طراحی) ----
 @Composable
-fun ConnectGauge(colors: AppColors, connected: Boolean, connecting: Boolean, pingMs: Int, onClick: () -> Unit) {
+fun ConnectGauge(
+    colors: AppColors,
+    connected: Boolean,
+    connecting: Boolean,
+    pingMs: Int,
+    glass: Boolean,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
     val targetAngle = if (connected) {
         max(-120f, min(120f, 120f - (pingMs / 300f) * 240f))
     } else -120f
@@ -551,6 +715,8 @@ fun ConnectGauge(colors: AppColors, connected: Boolean, connecting: Boolean, pin
         else -> colors.coral
     }
 
+    val tickColor = if (glass) colors.textDim.copy(alpha = 0.45f) else colors.border
+
     Box(
         Modifier.size(212.dp).clip(CircleShape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center
@@ -561,7 +727,7 @@ fun ConnectGauge(colors: AppColors, connected: Boolean, connecting: Boolean, pin
             listOf(-120f, -80f, -40f, 0f, 40f, 80f, 120f).forEach { deg ->
                 rotate(degrees = deg, pivot = center) {
                     drawLine(
-                        color = colors.border,
+                        color = tickColor,
                         start = Offset(center.x, center.y - radius + 6.dp.toPx()),
                         end = Offset(center.x, center.y - radius + 19.dp.toPx()),
                         strokeWidth = 3.dp.toPx(),
@@ -580,7 +746,7 @@ fun ConnectGauge(colors: AppColors, connected: Boolean, connecting: Boolean, pin
             }
         }
         Box(
-            Modifier.size(176.dp).clip(CircleShape).background(colors.surface).border(1.dp, colors.border, CircleShape),
+            Modifier.size(176.dp).panel(colors, glass, isDark, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -607,6 +773,8 @@ fun ServersScreen(
     servers: List<VpnServer>,
     selectedId: Int,
     query: String,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     onQueryChange: (String) -> Unit,
     onSelect: (Int) -> Unit,
     onTestPings: () -> Unit,
@@ -620,6 +788,12 @@ fun ServersScreen(
         Spacer(Modifier.height(14.dp))
         BasicField(colors, query, onQueryChange, "جستجوی کشور یا سرور")
         Spacer(Modifier.height(12.dp))
+        PrimaryButton(
+            colors,
+            if (refreshing) "در حال بروزرسانی و تست پینگ…" else "بروزرسانی اشتراک (مرتب‌سازی با کمترین پینگ)",
+            onClick = { if (!refreshing) onRefresh() }
+        )
+        Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             GhostButton(colors, "افزودن از لینک", onClick = onImport, modifier = Modifier.weight(1f))
             GhostButton(colors, "اسکن QR", onClick = onScanQr, modifier = Modifier.weight(1f))
@@ -667,13 +841,22 @@ fun ServersScreen(
 
 // ==================== Settings ====================
 @Composable
-fun SettingsScreen(colors: AppColors, isDark: Boolean, onToggleDark: () -> Unit, onLogout: () -> Unit) {
+fun SettingsScreen(
+    colors: AppColors,
+    isDark: Boolean,
+    onToggleDark: () -> Unit,
+    glass: Boolean,
+    onToggleGlass: () -> Unit,
+    onLogout: () -> Unit
+) {
     val context = LocalContext.current
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Text("تنظیمات", color = colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(18.dp))
 
         SettingRow(colors, "حالت تاریک", "رابط کاربری با نور کم", isDark, onToggleDark)
+        Spacer(Modifier.height(10.dp))
+        SettingRow(colors, "تم شیشه‌ای", "ظاهر شیشه‌ای در صفحه اصلی", glass, onToggleGlass)
 
         Spacer(Modifier.height(24.dp))
         Text("درباره", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
