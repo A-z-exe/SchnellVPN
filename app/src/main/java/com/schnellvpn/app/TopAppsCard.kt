@@ -67,7 +67,7 @@ fun TopAppsCard(colors: AppColors, glass: Boolean, isDark: Boolean) {
                 val before = previous
                 val elapsed = now - previousAt
                 val result = withContext(Dispatchers.IO) {
-                    val totals = AppUsageProvider.queryTodayTotals(context)
+                    val totals = AppUsageProvider.queryLast24h(context)
                     val ranked = UsageMath.rank(totals, before, elapsed, myUid)
                     val shown = ArrayList<AppUsageItem>()
                     for (usage in ranked) {
@@ -99,7 +99,7 @@ fun TopAppsCard(colors: AppColors, glass: Boolean, isDark: Boolean) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("پرمصرف‌ترین برنامه‌ها", color = colors.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text("امروز", color = colors.textDim, fontSize = 11.sp)
+            Text("۲۴ ساعت گذشته", color = colors.textDim, fontSize = 11.sp)
         }
         Spacer(Modifier.height(12.dp))
 

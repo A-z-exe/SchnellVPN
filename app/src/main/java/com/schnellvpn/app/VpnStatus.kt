@@ -12,6 +12,7 @@ object VpnStatus {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     val isConnected = mutableStateOf(false)
+    val isConnecting = mutableStateOf(false)
     val txBytes = mutableStateOf(0L)
     val rxBytes = mutableStateOf(0L)
     val connectStartMillis = mutableStateOf(0L)
@@ -21,6 +22,7 @@ object VpnStatus {
     fun reset() {
         postToMain {
             isConnected.value = false
+            isConnecting.value = false
             txBytes.value = 0L
             rxBytes.value = 0L
             connectStartMillis.value = 0L
@@ -30,7 +32,12 @@ object VpnStatus {
     val totalMB: Float
         get() = (txBytes.value + rxBytes.value) / (1024f * 1024f)
 
-    fun setConnected(connected: Boolean) = postToMain { isConnected.value = connected }
+    fun setConnected(connected: Boolean) = postToMain {
+        isConnected.value = connected
+        // وقتی اتصال نهایی شد، حالت «در حال اتصال» باید پاک شود (رفع باگ گیرکردن روی «در حال اتصال»)
+        if (connected) isConnecting.value = false
+    }
+    fun setConnecting(connecting: Boolean) = postToMain { isConnecting.value = connecting }
     fun setTxRx(tx: Long, rx: Long) = postToMain {
         txBytes.value = tx
         rxBytes.value = rx

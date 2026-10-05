@@ -90,6 +90,8 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             return
         }
         disconnectRequested.set(false)
+        VpnStatus.setConnecting(true)
+        VpnStatus.setLastError(null)
 
         serviceScope.launch {
             try {
@@ -144,6 +146,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 if (disconnectRequested.get()) throw CancellationException("Disconnected during connect")
 
                 isConnected.set(true)
+                VpnStatus.setConnecting(false)
                 VpnStatus.setConnected(true)
                 VpnStatus.setConnectStartMillis(System.currentTimeMillis())
                 withContext(Dispatchers.Main) { updateNotification("🟢 متصل شدید", true) }
@@ -156,6 +159,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 cleanupResources()
             } catch (e: Exception) {
                 Log.e(TAG, "VPN error: ${e.message}", e)
+                VpnStatus.setConnecting(false)
                 VpnStatus.setLastError(e.message ?: "Unknown error")
                 cleanupResources()
             } finally {
@@ -188,6 +192,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         try {
             releaseResources()
             isConnected.set(false)
+            VpnStatus.setConnecting(false)
             VpnStatus.reset()
             withContext(NonCancellable + Dispatchers.Main) {
                 stopForeground(STOP_FOREGROUND_REMOVE)

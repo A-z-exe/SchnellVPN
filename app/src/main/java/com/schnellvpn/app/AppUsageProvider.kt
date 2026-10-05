@@ -11,7 +11,6 @@ import android.os.Build
 import android.os.Process
 import android.provider.Settings
 import androidx.core.graphics.drawable.toBitmap
-import java.util.Calendar
 
 class ResolvedApp(val packageName: String, val label: String, val icon: Bitmap?)
 
@@ -39,20 +38,14 @@ object AppUsageProvider {
     fun settingsIntent(): Intent =
         Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-    /** uid -> rx+tx bytes since local midnight (Wi-Fi + mobile). Empty map on any failure. */
+    /** uid -> rx+tx bytes during the last 24 hours (Wi-Fi + mobile). Empty map on any failure. */
     @Suppress("DEPRECATION")
-    fun queryTodayTotals(context: Context): Map<Int, Long> {
+    fun queryLast24h(context: Context): Map<Int, Long> {
         val manager = context.getSystemService(Context.NETWORK_STATS_SERVICE) as? NetworkStatsManager
             ?: return emptyMap()
 
-        val midnight = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val start = midnight.timeInMillis
         val end = System.currentTimeMillis()
+        val start = end - 24L * 60L * 60L * 1000L
 
         val totals = HashMap<Int, Long>()
         // Mobile data with a null subscriberId is only reported on Android 10+; Wi-Fi works everywhere.

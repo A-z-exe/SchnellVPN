@@ -24,6 +24,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -98,6 +99,11 @@ class MainActivity : ComponentActivity() {
     private var glass by mutableStateOf(true)
     private var refreshing by mutableStateOf(false)
 
+    // پروفایل‌های مستقل (پروفایل ۱، ۲، ۳ …) — هر کدام سرورها و اشتراک خودش را دارد
+    private val profiles = mutableStateListOf<ServerProfile>()
+    private var activeProfileId by mutableStateOf(-1)
+    private var showSplash by mutableStateOf(true)
+
     private var showAddLinkDialog by mutableStateOf(false)
     private var addLinkInput by mutableStateOf("")
     private var addLinkLoading by mutableStateOf(false)
@@ -151,15 +157,39 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // بارگذاری سرورها از حافظه
-        val savedServers = ProfileManager.loadServers(this)
-        if (savedServers.isNotEmpty()) {
-            servers.addAll(savedServers)
-            loggedIn = true
+        // بارگذاری پروفایل‌ها از حافظه (با مهاجرت از نسخه‌ی تک‌لیستی قدیمی)
+        val savedProfiles = ProfileStore.load(this)
+        if (savedProfiles.isNotEmpty()) {
+            profiles.addAll(savedProfiles)
+            val savedActive = ProfileStore.loadActiveId(this)
+            activeProfileId = if (savedProfiles.any { it.id == savedActive }) savedActive
+            else savedProfiles.first().id
+        } else {
+            val legacyServers = ProfileManager.loadServers(this)
+            if (legacyServers.isNotEmpty()) {
+                profiles.add(
+                    ServerProfile(
+                        id = 1,
+                        name = "پروفایل 1",
+                        servers = legacyServers,
+                        selectedServerId = ProfileManager.loadSelectedServerId(this),
+                        subscriptionUrls = ProfileManager.loadSubscriptionUrls(this)
+                    )
+                )
+                activeProfileId = 1
+                ProfileStore.save(this, profiles.toList())
+                ProfileStore.saveActiveId(this, 1)
+            }
         }
-        val savedId = ProfileManager.loadSelectedServerId(this)
-        if (savedId != -1) selectedServerId = savedId
-        subLink = ProfileManager.loadSubscriptionUrl(this)
+        val active = profiles.find { it.id == activeProfileId }
+        if (active != null) {
+            servers.addAll(active.servers)
+            selectedServerId = active.selectedServerId
+                .takeIf { id -> active.servers.any { it.id == id } }
+                ?: active.servers.firstOrNull()?.id ?: -1
+            subLink = active.subscriptionUrls.firstOrNull() ?: ""
+        }
+        if (profiles.isNotEmpty()) loggedIn = true
         glass = ProfileManager.loadGlass(this)
 
         setContent {
@@ -170,10 +200,14 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 while (true) {
                     val svc = VpnStatus.isConnected.value
+                    val svcConnecting = VpnStatus.isConnecting.value
                     if (connected != svc) {
                         connected = svc
-                        if (!svc) { connecting = false; durationSec = 0; dataMB = 0f }
+                        // هر زمان وضعیت نهایی شد، «در حال اتصال» باید پاک شود
+                        connecting = false
+                        if (!svc) { durationSec = 0; dataMB = 0f }
                     }
+                    if (svcConnecting != connecting) connecting = svcConnecting
                     VpnStatus.lastError.value?.let { err ->
                         connecting = false
                         toastText = "خطا: $err"
@@ -195,14 +229,24 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // پنهان کردن اسپلش بعد از انیمیشن ورود لوگو
+            LaunchedEffect(Unit) {
+                delay(1900)
+                showSplash = false
+            }
+
             MaterialTheme {
                 Surface(color = colors.bg, modifier = Modifier.fillMaxSize()) {
                     Box(Modifier.fillMaxSize()) {
-                        if (!loggedIn) {
+                        if (showSplash) {
+                            SplashScreen(colors)
+                        } else if (!loggedIn) {
                             LoginScreen(
                                 colors = colors,
                                 subLink = subLink,
                                 loading = loginLoading,
+                                glass = glass,
+                                isDark = isDark,
                                 onSubLinkChange = { subLink = it },
                                 onImport = { importSubscription(scope, subLink, isInitialLogin = true) },
                                 onScanQr = { startQrScan() }
@@ -221,6 +265,9 @@ class MainActivity : ComponentActivity() {
                                             dataMB = dataMB,
                                             glass = glass,
                                             isDark = isDark,
+                                            profiles = profiles,
+                                            activeProfileId = activeProfileId,
+                                            onSwitchProfile = { switchProfile(it) },
                                             onToggleConnect = { toggleConnect(scope) },
                                             onOpenServers = { currentTab = Tab.SERVERS },
                                             onOpenSettings = { currentTab = Tab.SETTINGS }
@@ -231,11 +278,16 @@ class MainActivity : ComponentActivity() {
                                             selectedId = selectedServerId,
                                             query = searchQuery,
                                             refreshing = refreshing,
+                                            glass = glass,
+                                            isDark = isDark,
+                                            profiles = profiles,
+                                            activeProfileId = activeProfileId,
+                                            onSwitchProfile = { switchProfile(it) },
                                             onRefresh = { refreshSubscriptions(scope) },
                                             onQueryChange = { searchQuery = it },
                                             onSelect = { id ->
                                                 selectedServerId = id
-                                                ProfileManager.saveSelectedServerId(this@MainActivity, id)
+                                                syncActiveProfile()
                                                 scope.launch {
                                                     toastText = "سرور انتخاب شد"
                                                     delay(450)
@@ -252,7 +304,7 @@ class MainActivity : ComponentActivity() {
                                                         val s = servers[i]
                                                         servers[i] = s.copy(pingMs = results[s.id])
                                                     }
-                                                    ProfileManager.saveServers(this@MainActivity, servers.toList())
+                                                    syncActiveProfile()
                                                     val ok = results.values.count { it != null }
                                                     showToast(scope, "پینگ: $ok از ${results.size} سرور پاسخ دادند")
                                                 }
@@ -269,10 +321,17 @@ class MainActivity : ComponentActivity() {
                                                 glass = !glass
                                                 ProfileManager.saveGlass(this@MainActivity, glass)
                                             },
+                                            profiles = profiles,
+                                            activeProfileId = activeProfileId,
+                                            onSwitchProfile = { switchProfile(it) },
+                                            onDeleteProfile = { deleteProfile(it) },
                                             onLogout = {
                                                 stopVpn()
                                                 ProfileManager.clearServers(this@MainActivity)
                                                 ProfileManager.clearSubscriptionUrls(this@MainActivity)
+                                                ProfileStore.clear(this@MainActivity)
+                                                profiles.clear()
+                                                activeProfileId = -1
                                                 subLink = ""
                                                 servers.clear()
                                                 selectedServerId = -1
@@ -324,7 +383,76 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // این تابع واقعاً به اینترنت می‌زنه، لینک Subscription رو می‌خونه، و سرورهای واقعی داخلش رو استخراج می‌کنه
+    // ==================== پروفایل‌ها ====================
+    private fun activeProfile(): ServerProfile? = profiles.find { it.id == activeProfileId }
+
+    private fun replaceProfile(updated: ServerProfile) {
+        val i = profiles.indexOfFirst { it.id == updated.id }
+        if (i >= 0) profiles[i] = updated
+    }
+
+    private fun persistProfiles() {
+        ProfileStore.save(this, profiles.toList())
+        ProfileStore.saveActiveId(this, activeProfileId)
+    }
+
+    /** اگر هیچ پروفایلی نیست، یک پروفایل خالی می‌سازد. */
+    private fun ensureProfile() {
+        if (profiles.isEmpty()) {
+            profiles.add(ServerProfile(1, "پروفایل 1", emptyList(), -1, emptyList()))
+            activeProfileId = 1
+            persistProfiles()
+        } else if (activeProfile() == null) {
+            activeProfileId = profiles.first().id
+        }
+    }
+
+    /** لیست فعلی سرورها/سرور انتخابی را در پروفایل فعال ذخیره می‌کند. */
+    private fun syncActiveProfile() {
+        val p = activeProfile()
+        if (p != null) {
+            replaceProfile(p.copy(servers = servers.toList(), selectedServerId = selectedServerId))
+        } else if (servers.isNotEmpty()) {
+            profiles.add(ServerProfile(1, "پروفایل 1", servers.toList(), selectedServerId, emptyList()))
+            activeProfileId = 1
+        }
+        persistProfiles()
+    }
+
+    private fun switchProfile(id: Int) {
+        if (id == activeProfileId) return
+        if (connected || connecting) stopVpn()
+        syncActiveProfile()
+        val p = profiles.find { it.id == id } ?: return
+        activeProfileId = id
+        servers.clear(); servers.addAll(p.servers)
+        selectedServerId = p.selectedServerId
+            .takeIf { sid -> p.servers.any { it.id == sid } }
+            ?: p.servers.firstOrNull()?.id ?: -1
+        persistProfiles()
+    }
+
+    private fun deleteProfile(id: Int) {
+        if (connected || connecting) stopVpn()
+        val before = profiles.size
+        profiles.removeAll { it.id == id }
+        if (profiles.size == before) return
+        if (activeProfileId == id) {
+            activeProfileId = profiles.firstOrNull()?.id ?: -1
+            val p = activeProfile()
+            servers.clear()
+            if (p != null) servers.addAll(p.servers)
+            selectedServerId = p?.selectedServerId ?: -1
+        }
+        persistProfiles()
+        if (profiles.isEmpty()) loggedIn = false
+    }
+
+    /**
+     * افزودن یک لینک:
+     * - لینک مستقیم کانفیگ (vless/vmess/trojan/ss) → به پروفایل فعلی اضافه می‌شود (بدون اینترنت).
+     * - لینک اشتراک (http/https) → یک پروفایل جدید می‌سازد (پروفایل ۱، ۲، ۳ …).
+     */
     private fun importSubscription(scope: kotlinx.coroutines.CoroutineScope, link: String, isInitialLogin: Boolean) {
         val trimmed = link.trim()
         if (trimmed.isEmpty()) {
@@ -334,33 +462,62 @@ class MainActivity : ComponentActivity() {
         scope.launch {
             if (isInitialLogin) loginLoading = true else addLinkLoading = true
             try {
-                val result = withContext(Dispatchers.IO) { SubscriptionFetcher.fetchAndParse(trimmed) }
-                if (result.isEmpty()) {
-                    showToast(scope, "هیچ سرور معتبری توی این لینک پیدا نشد")
-                } else if (isInitialLogin) {
-                    val (numbered, selected) = ServerListOps.renumber(result.map { it.copy(source = trimmed) }, null)
-                    servers.clear()
-                    servers.addAll(numbered)
-                    selectedServerId = selected
-                    loggedIn = true
-                    ProfileManager.saveServers(this@MainActivity, servers.toList())
-                    ProfileManager.saveSelectedServerId(this@MainActivity, selectedServerId)
-                    ProfileManager.clearSubscriptionUrls(this@MainActivity)
-                    ProfileManager.saveSubscriptionUrl(this@MainActivity, trimmed)
-                    ProfileManager.addSubscriptionUrl(this@MainActivity, trimmed)
-                    showToast(scope, "${result.size} سرور با موفقیت اضافه شد")
-                } else {
+                val isHttp = trimmed.startsWith("http://", ignoreCase = true) ||
+                    trimmed.startsWith("https://", ignoreCase = true)
+
+                if (!isHttp) {
+                    // کانفیگ مستقیم — بدون نیاز به اینترنت
+                    val parsed = withContext(Dispatchers.IO) { SubscriptionFetcher.parseContent(trimmed) }
+                    if (parsed.isEmpty()) {
+                        showToast(scope, "این لینک کانفیگ معتبر نیست")
+                        return@launch
+                    }
+                    ensureProfile()
                     val before = servers.size
-                    val merged = ServerListOps.addUnique(servers.toList(), result, trimmed)
+                    val merged = ServerListOps.addUnique(servers.toList(), parsed, ServerListOps.MANUAL)
                     val added = merged.size - before
-                    servers.clear()
-                    servers.addAll(merged)
+                    servers.clear(); servers.addAll(merged)
                     if (servers.none { it.id == selectedServerId } && servers.isNotEmpty()) selectedServerId = servers.first().id
-                    ProfileManager.saveServers(this@MainActivity, servers.toList())
-                    ProfileManager.saveSelectedServerId(this@MainActivity, selectedServerId)
-                    ProfileManager.addSubscriptionUrl(this@MainActivity, trimmed)
+                    syncActiveProfile()
+                    loggedIn = true
                     showAddLinkDialog = false
-                    showToast(scope, if (added == 0) "همه‌ی این سرورها قبلاً اضافه شده بودن" else "$added سرور جدید اضافه شد")
+                    showToast(scope, if (added == 0) "این کانفیگ قبلاً اضافه شده بود" else "$added کانفیگ به پروفایل فعلی اضافه شد")
+                } else {
+                    // اشتراک
+                    val result = withContext(Dispatchers.IO) { SubscriptionFetcher.fetchAndParse(trimmed) }
+                    if (result.isEmpty()) {
+                        showToast(scope, "هیچ سرور معتبری توی این لینک پیدا نشد")
+                        return@launch
+                    }
+                    val numbered = ServerListOps.renumber(result.map { it.copy(source = trimmed) }, null).first
+                    if (isInitialLogin && profiles.isEmpty()) {
+                        profiles.add(ServerProfile(1, "پروفایل 1", numbered, numbered.firstOrNull()?.id ?: -1, listOf(trimmed)))
+                        activeProfileId = 1
+                        servers.clear(); servers.addAll(numbered)
+                        selectedServerId = numbered.firstOrNull()?.id ?: -1
+                        loggedIn = true
+                        persistProfiles()
+                        showToast(scope, "${result.size} سرور با موفقیت اضافه شد")
+                    } else {
+                        // هر اشتراک جدید = یک پروفایل جدید
+                        if (connected || connecting) stopVpn()
+                        val newId = (profiles.maxOfOrNull { it.id } ?: 0) + 1
+                        profiles.add(
+                            ServerProfile(
+                                id = newId,
+                                name = "پروفایل $newId",
+                                servers = numbered,
+                                selectedServerId = numbered.firstOrNull()?.id ?: -1,
+                                subscriptionUrls = listOf(trimmed)
+                            )
+                        )
+                        activeProfileId = newId
+                        servers.clear(); servers.addAll(numbered)
+                        selectedServerId = numbered.firstOrNull()?.id ?: -1
+                        persistProfiles()
+                        showAddLinkDialog = false
+                        showToast(scope, "پروفایل $newId با ${numbered.size} سرور ساخته شد")
+                    }
                 }
             } catch (e: Exception) {
                 showToast(scope, "خطا در دریافت لینک: ${e.message ?: "اتصال برقرار نشد"}")
@@ -373,7 +530,7 @@ class MainActivity : ComponentActivity() {
     // ==================== بروزرسانی اشتراک + پینگ + مرتب‌سازی ====================
     private fun refreshSubscriptions(scope: kotlinx.coroutines.CoroutineScope) {
         if (refreshing) return
-        val urls = ProfileManager.loadSubscriptionUrls(this)
+        val urls = activeProfile()?.subscriptionUrls ?: emptyList()
         if (urls.isEmpty()) {
             showToast(scope, "لینک اشتراکی ذخیره نشده — اول یک لینک اضافه کن")
             return
@@ -412,8 +569,7 @@ class MainActivity : ComponentActivity() {
                 servers.clear()
                 servers.addAll(sorted)
                 selectedServerId = newSelected
-                ProfileManager.saveServers(this@MainActivity, servers.toList())
-                ProfileManager.saveSelectedServerId(this@MainActivity, selectedServerId)
+                syncActiveProfile()
 
                 val alive = sorted.count { it.pingMs != null }
                 val note = if (failures > 0) " ($failures لینک دانلود نشد)" else ""
@@ -474,8 +630,8 @@ class MainActivity : ComponentActivity() {
         servers.addAll(merged)
         selectedServerId = merged[before].id // اولین سرور جدید رو انتخاب کن تا بشه فوراً وصل شد
         loggedIn = true
-        ProfileManager.saveServers(this, servers.toList())
-        ProfileManager.saveSelectedServerId(this, selectedServerId)
+        ensureProfile()
+        syncActiveProfile()
         showToast(scope, if (added == 1) "کانفیگ اضافه و انتخاب شد" else "$added کانفیگ اضافه شد")
     }
 
@@ -490,7 +646,18 @@ class MainActivity : ComponentActivity() {
                 showToast(scope, "اول یک سرور انتخاب کن")
             } else {
                 connecting = true
+                VpnStatus.setConnecting(true)
                 connectVpn(link)
+                // تایم‌اوت ایمنی: هرگز روی «در حال اتصال» گیر نکنیم
+                scope.launch {
+                    delay(30_000)
+                    if (!VpnStatus.isConnected.value && VpnStatus.isConnecting.value) {
+                        VpnStatus.setConnecting(false)
+                        toastText = "اتصال برقرار نشد — دوباره تلاش کن"
+                        delay(2500)
+                        if (toastText == "اتصال برقرار نشد — دوباره تلاش کن") toastText = null
+                    }
+                }
             }
         }
     }
@@ -526,6 +693,7 @@ class MainActivity : ComponentActivity() {
         }
         startService(i)
         connecting = false
+        VpnStatus.setConnecting(false)
         // connected رو دستی false نمی‌کنیم — sync loop از VpnStatus می‌خونه
     }
 }
@@ -536,11 +704,14 @@ fun LoginScreen(
     colors: AppColors,
     subLink: String,
     loading: Boolean,
+    glass: Boolean,
+    isDark: Boolean,
     onSubLinkChange: (String) -> Unit,
     onImport: () -> Unit,
     onScanQr: () -> Unit
 ) {
     val context = LocalContext.current
+    GlassBackground(isDark = isDark, enabled = glass) {
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -558,7 +729,7 @@ fun LoginScreen(
         Text("سریع. امن. بدون پیچیدگی.", color = colors.textDim, fontSize = 13.5.sp)
         Spacer(Modifier.height(30.dp))
 
-        BasicField(colors, subLink, onSubLinkChange, "لینک اشتراک (Subscription) را وارد کنید")
+        BasicField(colors, subLink, onSubLinkChange, "لینک اشتراک یا لینک کانفیگ را وارد کنید")
         Spacer(Modifier.height(10.dp))
         PrimaryButton(colors, if (loading) "در حال دریافت سرورها…" else "وارد کردن لینک", onClick = { if (!loading) onImport() })
         Spacer(Modifier.height(14.dp))
@@ -581,6 +752,7 @@ fun LoginScreen(
             )
         }
     }
+    }
 }
 
 // ==================== Home ====================
@@ -595,6 +767,9 @@ fun HomeScreen(
     dataMB: Float,
     glass: Boolean,
     isDark: Boolean,
+    profiles: List<ServerProfile>,
+    activeProfileId: Int,
+    onSwitchProfile: (Int) -> Unit,
     onToggleConnect: () -> Unit,
     onOpenServers: () -> Unit,
     onOpenSettings: () -> Unit
@@ -610,6 +785,11 @@ fun HomeScreen(
                 Modifier.size(36.dp).panel(colors, glass, isDark, RoundedCornerShape(11.dp), solid = colors.surface2).clickable { onOpenSettings() },
                 contentAlignment = Alignment.Center
             ) { Text("⚙", color = colors.textDim, fontSize = 16.sp) }
+        }
+
+        if (profiles.size > 1) {
+            Spacer(Modifier.height(12.dp))
+            ProfileChips(colors, profiles, activeProfileId, onSwitchProfile)
         }
 
         Spacer(Modifier.height(24.dp))
@@ -774,6 +954,11 @@ fun ServersScreen(
     selectedId: Int,
     query: String,
     refreshing: Boolean,
+    glass: Boolean,
+    isDark: Boolean,
+    profiles: List<ServerProfile>,
+    activeProfileId: Int,
+    onSwitchProfile: (Int) -> Unit,
     onRefresh: () -> Unit,
     onQueryChange: (String) -> Unit,
     onSelect: (Int) -> Unit,
@@ -783,8 +968,13 @@ fun ServersScreen(
 ) {
     val filtered = servers.filter { it.name.contains(query) || it.protocolLabel.contains(query, true) }
 
+    GlassBackground(isDark = isDark, enabled = glass) {
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Text("سرورها", color = colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        if (profiles.size > 1) {
+            Spacer(Modifier.height(12.dp))
+            ProfileChips(colors, profiles, activeProfileId, onSwitchProfile)
+        }
         Spacer(Modifier.height(14.dp))
         BasicField(colors, query, onQueryChange, "جستجوی کشور یا سرور")
         Spacer(Modifier.height(12.dp))
@@ -819,8 +1009,8 @@ fun ServersScreen(
                     Modifier
                         .fillMaxWidth()
                         .padding(vertical = 5.dp)
-                        .background(if (isSelected) colors.surface2 else colors.surface, RoundedCornerShape(16.dp))
-                        .border(1.dp, if (isSelected) colors.amber else colors.border, RoundedCornerShape(16.dp))
+                        .panel(colors, glass, isDark, RoundedCornerShape(16.dp), solid = if (isSelected) colors.surface2 else colors.surface)
+                        .then(if (isSelected) Modifier.border(1.dp, colors.amber, RoundedCornerShape(16.dp)) else Modifier)
                         .clickable { onSelect(server.id) }
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -837,6 +1027,7 @@ fun ServersScreen(
             }
         }
     }
+    }
 }
 
 // ==================== Settings ====================
@@ -847,23 +1038,61 @@ fun SettingsScreen(
     onToggleDark: () -> Unit,
     glass: Boolean,
     onToggleGlass: () -> Unit,
+    profiles: List<ServerProfile>,
+    activeProfileId: Int,
+    onSwitchProfile: (Int) -> Unit,
+    onDeleteProfile: (Int) -> Unit,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
-    Column(Modifier.fillMaxSize().padding(20.dp)) {
+    GlassBackground(isDark = isDark, enabled = glass) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         Text("تنظیمات", color = colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(18.dp))
 
         SettingRow(colors, "حالت تاریک", "رابط کاربری با نور کم", isDark, onToggleDark)
         Spacer(Modifier.height(10.dp))
-        SettingRow(colors, "تم شیشه‌ای", "ظاهر شیشه‌ای در صفحه اصلی", glass, onToggleGlass)
+        SettingRow(colors, "تم شیشه‌ای", "ظاهر شیشه‌ای در همه‌ی صفحه‌ها", glass, onToggleGlass)
+
+        Spacer(Modifier.height(18.dp))
+        Text("پروفایل‌ها", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        if (profiles.isEmpty()) {
+            Text("هنوز پروفایلی نداری.", color = colors.textDim, fontSize = 12.sp)
+        } else {
+            profiles.forEach { p ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .background(colors.surface, RoundedCornerShape(14.dp))
+                        .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f).clickable { onSwitchProfile(p.id) }) {
+                        Text(
+                            p.name + (if (p.id == activeProfileId) "  ✓" else ""),
+                            color = if (p.id == activeProfileId) colors.amber else colors.text,
+                            fontSize = 13.5.sp, fontWeight = FontWeight.Medium
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text("${p.servers.size} سرور", color = colors.textDim, fontSize = 11.sp)
+                    }
+                    Text(
+                        "✕", color = colors.coral, fontSize = 15.sp,
+                        modifier = Modifier.clickable { onDeleteProfile(p.id) }.padding(6.dp)
+                    )
+                }
+            }
+        }
 
         Spacer(Modifier.height(24.dp))
         Text("درباره", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         AboutRow(colors, "نسخه برنامه", "1.0.0")
         AboutRow(colors, "هسته اتصال", "Xray-core")
-        AboutRow(colors, "توسعه‌دهنده", "SchnellVPN Team") // 👈 بعداً اسم/اطلاعات واقعی رو همینجا بگذار
+        AboutRow(colors, "توسعه‌دهنده", "A-z-exe (Amirhosseinzarei)")
         Row(
             Modifier
                 .fillMaxWidth()
@@ -879,6 +1108,7 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(24.dp))
         DangerButton(colors, "خروج از حساب", onClick = onLogout)
+    }
     }
 }
 
@@ -1007,6 +1237,38 @@ fun NavItem(colors: AppColors, label: String, active: Boolean, onClick: () -> Un
     )
 }
 
+/** نوار انتخاب پروفایل (پروفایل ۱، ۲، ۳ …) */
+@Composable
+fun ProfileChips(
+    colors: AppColors,
+    profiles: List<ServerProfile>,
+    activeId: Int,
+    onSelect: (Int) -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        profiles.forEach { p ->
+            val active = p.id == activeId
+            Box(
+                Modifier
+                    .background(colors.surface2, RoundedCornerShape(12.dp))
+                    .border(1.dp, if (active) colors.amber else colors.border, RoundedCornerShape(12.dp))
+                    .clickable { onSelect(p.id) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    "${p.name} (${p.servers.size})",
+                    color = if (active) colors.amber else colors.text,
+                    fontSize = 12.sp,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+                )
+            }
+        }
+    }
+}
+
 // ==================== Add Link Dialog (Servers screen) ====================
 @Composable
 fun AddLinkDialog(
@@ -1032,9 +1294,14 @@ fun AddLinkDialog(
                 .clickable(onClick = {}) // برای اینکه لمس داخل باکس، دیالوگ رو نبنده
                 .padding(18.dp)
         ) {
-            Text("افزودن لینک اشتراک", color = colors.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text("افزودن اشتراک یا لینک سرور", color = colors.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "لینک Subscription یک پروفایل جدید می‌سازد؛ لینک مستقیم vless/vmess/trojan/ss به پروفایل فعلی اضافه می‌شود.",
+                color = colors.textDim, fontSize = 11.sp
+            )
             Spacer(Modifier.height(12.dp))
-            BasicField(colors, value, onChange, "لینک Subscription را وارد کنید")
+            BasicField(colors, value, onChange, "لینک اشتراک یا vless/vmess/trojan/ss")
             Spacer(Modifier.height(14.dp))
             PrimaryButton(colors, if (loading) "در حال دریافت…" else "افزودن", onClick = { if (!loading) onConfirm() })
         }

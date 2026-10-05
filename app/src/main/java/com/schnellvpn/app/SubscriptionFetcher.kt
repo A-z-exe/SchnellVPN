@@ -30,6 +30,9 @@ object SubscriptionFetcher {
         return parseLinks(text)
     }
 
+    /** آیا ورودی یک لینک کانفیگ مستقیم است (vless:// vmess:// trojan:// ss://)؟ */
+    fun isDirectLink(text: String): Boolean = startsWithKnownScheme(text.trim())
+
     // ---------------------------------------------------------------- JSON
 
     private fun parseJson(json: String): List<VpnServer> {
