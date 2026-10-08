@@ -76,7 +76,7 @@ val LightColors = AppColors(
     amber = Color(0xFFD9870A), teal = Color(0xFF1F9E8F), coral = Color(0xFFE0473A)
 )
 
-enum class Tab { HOME, SERVERS, SETTINGS }
+enum class Tab { HOME, SERVERS, APPS, SETTINGS }
 
 class MainActivity : ComponentActivity() {
 
@@ -98,6 +98,12 @@ class MainActivity : ComponentActivity() {
     private var loginLoading by mutableStateOf(false)
     private var glass by mutableStateOf(true)
     private var refreshing by mutableStateOf(false)
+
+    // تنظیمات جدید
+    private var autoConnect by mutableStateOf(false)
+    private var disconnectOnLock by mutableStateOf(false)
+    private var hotspotShare by mutableStateOf(false)
+    private var excludedPackages by mutableStateOf<Set<String>>(emptySet())
 
     // پروفایل‌های مستقل (پروفایل ۱، ۲، ۳ …) — هر کدام سرورها و اشتراک خودش را دارد
     private val profiles = mutableStateListOf<ServerProfile>()
@@ -191,6 +197,10 @@ class MainActivity : ComponentActivity() {
         }
         if (profiles.isNotEmpty()) loggedIn = true
         glass = ProfileManager.loadGlass(this)
+        autoConnect = ProfileManager.loadAutoConnect(this)
+        disconnectOnLock = ProfileManager.loadDisconnectOnLock(this)
+        hotspotShare = ProfileManager.loadHotspotShare(this)
+        excludedPackages = ProfileManager.loadExcludedPackages(this)
 
         setContent {
             val colors = if (isDark) DarkColors else LightColors
@@ -312,6 +322,18 @@ class MainActivity : ComponentActivity() {
                                             onImport = { addLinkInput = ""; showAddLinkDialog = true },
                                             onScanQr = { startQrScan() }
                                         )
+                                        Tab.APPS -> AppsScreen(
+                                            colors = colors,
+                                            glass = glass,
+                                            isDark = isDark,
+                                            excluded = excludedPackages,
+                                            onToggle = { pkg ->
+                                                excludedPackages =
+                                                    if (pkg in excludedPackages) excludedPackages - pkg
+                                                    else excludedPackages + pkg
+                                                ProfileManager.saveExcludedPackages(this@MainActivity, excludedPackages)
+                                            }
+                                        )
                                         Tab.SETTINGS -> SettingsScreen(
                                             colors = colors,
                                             isDark = isDark,
@@ -320,6 +342,21 @@ class MainActivity : ComponentActivity() {
                                             onToggleGlass = {
                                                 glass = !glass
                                                 ProfileManager.saveGlass(this@MainActivity, glass)
+                                            },
+                                            autoConnect = autoConnect,
+                                            onToggleAutoConnect = {
+                                                autoConnect = !autoConnect
+                                                ProfileManager.saveAutoConnect(this@MainActivity, autoConnect)
+                                            },
+                                            disconnectOnLock = disconnectOnLock,
+                                            onToggleDisconnectOnLock = {
+                                                disconnectOnLock = !disconnectOnLock
+                                                ProfileManager.saveDisconnectOnLock(this@MainActivity, disconnectOnLock)
+                                            },
+                                            hotspotShare = hotspotShare,
+                                            onToggleHotspotShare = {
+                                                hotspotShare = !hotspotShare
+                                                ProfileManager.saveHotspotShare(this@MainActivity, hotspotShare)
                                             },
                                             profiles = profiles,
                                             activeProfileId = activeProfileId,
@@ -1038,6 +1075,12 @@ fun SettingsScreen(
     onToggleDark: () -> Unit,
     glass: Boolean,
     onToggleGlass: () -> Unit,
+    autoConnect: Boolean,
+    onToggleAutoConnect: () -> Unit,
+    disconnectOnLock: Boolean,
+    onToggleDisconnectOnLock: () -> Unit,
+    hotspotShare: Boolean,
+    onToggleHotspotShare: () -> Unit,
     profiles: List<ServerProfile>,
     activeProfileId: Int,
     onSwitchProfile: (Int) -> Unit,
@@ -1053,6 +1096,19 @@ fun SettingsScreen(
         SettingRow(colors, "حالت تاریک", "رابط کاربری با نور کم", isDark, onToggleDark)
         Spacer(Modifier.height(10.dp))
         SettingRow(colors, "تم شیشه‌ای", "ظاهر شیشه‌ای در همه‌ی صفحه‌ها", glass, onToggleGlass)
+        Spacer(Modifier.height(10.dp))
+        SettingRow(colors, "اتصال خودکار در بوت", "بعد از روشن شدن گوشی خودکار وصل شود", autoConnect, onToggleAutoConnect)
+        Spacer(Modifier.height(10.dp))
+        SettingRow(colors, "قطع اتصال هنگام قفل صفحه", "با خاموش شدن صفحه، VPN قطع شود", disconnectOnLock, onToggleDisconnectOnLock)
+        Spacer(Modifier.height(10.dp))
+        SettingRow(colors, "اشتراک VPN روی هات‌اسپات", "پروکسی محلی برای دستگاه‌های هات‌اسپات", hotspotShare, onToggleHotspotShare)
+        if (hotspotShare) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "دستگاه‌های متصل به هات‌اسپات باید در تنظیمات وای‌فای، پروکسی «دستی» را روی IP هات‌اسپات این گوشی و پورت 10809 بگذارند.",
+                color = colors.textDim, fontSize = 10.5.sp
+            )
+        }
 
         Spacer(Modifier.height(18.dp))
         Text("پروفایل‌ها", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -1222,6 +1278,7 @@ fun BottomNav(colors: AppColors, current: Tab, onSelect: (Tab) -> Unit) {
     ) {
         NavItem(colors, "خانه", current == Tab.HOME) { onSelect(Tab.HOME) }
         NavItem(colors, "سرورها", current == Tab.SERVERS) { onSelect(Tab.SERVERS) }
+        NavItem(colors, "اپ‌ها", current == Tab.APPS) { onSelect(Tab.APPS) }
         NavItem(colors, "تنظیمات", current == Tab.SETTINGS) { onSelect(Tab.SETTINGS) }
     }
 }

@@ -19,6 +19,9 @@ object ProfileManager {
     private const val KEY_SELECTED_SERVER_ID = "selected_server_id"
     private const val KEY_SUBSCRIPTION_URLS = "subscription_urls"
     private const val KEY_GLASS = "glass_theme"
+    private const val KEY_DISCONNECT_ON_LOCK = "disconnect_on_lock"
+    private const val KEY_HOTSPOT_SHARE = "hotspot_share"
+    private const val KEY_EXCLUDED_APPS = "excluded_apps"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -153,6 +156,39 @@ object ProfileManager {
 
     fun loadAutoConnect(context: Context): Boolean {
         return prefs(context).getBoolean(KEY_AUTO_CONNECT, false)
+    }
+
+    fun saveDisconnectOnLock(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_DISCONNECT_ON_LOCK, enabled).apply()
+    }
+
+    fun loadDisconnectOnLock(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_DISCONNECT_ON_LOCK, false)
+
+    fun saveHotspotShare(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_HOTSPOT_SHARE, enabled).apply()
+    }
+
+    fun loadHotspotShare(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_HOTSPOT_SHARE, false)
+
+    /** پکیج‌هایی که نباید از VPN استفاده کنند (split tunneling). */
+    fun saveExcludedPackages(context: Context, packages: Set<String>) {
+        val arr = JSONArray()
+        packages.forEach { arr.put(it) }
+        prefs(context).edit().putString(KEY_EXCLUDED_APPS, arr.toString()).apply()
+    }
+
+    fun loadExcludedPackages(context: Context): Set<String> {
+        val raw = prefs(context).getString(KEY_EXCLUDED_APPS, null) ?: return emptySet()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length())
+                .mapNotNull { arr.optString(it, "").takeIf { s -> s.isNotBlank() } }
+                .toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }
     }
 
     // ========== آمار ==========

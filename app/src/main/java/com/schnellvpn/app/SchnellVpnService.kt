@@ -3,13 +3,17 @@ package com.schnellvpn.app
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
@@ -31,6 +35,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         private const val TUN_IPV6 = "fd00::2"
         private const val TUN_MTU = 1500
         private const val STATS_INTERVAL_MS = 1000L
+        private const val HOTSPOT_HTTP_PORT = 10809
     }
 
     private var tunPfd: ParcelFileDescriptor? = null
@@ -44,9 +49,32 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    /** وقتی صفحه قفل می‌شود و گزینه‌اش فعال باشد، اتصال قطع می‌شود. */
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_OFF &&
+                isConnected.get() &&
+                ProfileManager.loadDisconnectOnLock(this@SchnellVpnService)
+            ) {
+                Log.d(TAG, "Screen off → disconnect")
+                stopVpn()
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         ensureChannel()
+        try {
+            ContextCompat.registerReceiver(
+                this,
+                screenOffReceiver,
+                IntentFilter(Intent.ACTION_SCREEN_OFF),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "screen receiver register failed: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -72,6 +100,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     }
 
     override fun onDestroy() {
+        try { unregisterReceiver(screenOffReceiver) } catch (e: Exception) { /* already gone */ }
         // Best-effort synchronous release in case the system destroys us mid-connection.
         releaseResources()
         serviceScope.cancel()
@@ -98,7 +127,12 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 Log.d(TAG, "========== VPN CONNECT START ==========")
 
                 // 1. Xray config (throws IllegalArgumentException with a readable message)
-                val config = XrayConfigBuilder.buildConfig(link, SOCKS_PORT)
+                //    اگر «اشتراک روی هات‌اسپات» روشن باشد، یک پروکسی HTTP روی شبکه‌ی محلی هم اضافه می‌شود.
+                val hotspotShare = ProfileManager.loadHotspotShare(this@SchnellVpnService)
+                val config = XrayConfigBuilder.buildConfig(
+                    link, SOCKS_PORT,
+                    if (hotspotShare) HOTSPOT_HTTP_PORT else 0
+                )
 
                 // 2. Xray environment
                 try {
@@ -111,7 +145,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 // IMPORTANT: exclude this app from the VPN. Xray's outbound sockets live in this
                 // process; without this they would be routed back into the TUN (routing loop).
                 val tun = withContext(Dispatchers.Main) {
-                    Builder()
+                    val builder = Builder()
                         .setSession("SchnellVPN")
                         .setMtu(TUN_MTU)
                         .addAddress(TUN_IPV4, 32)
@@ -120,14 +154,23 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                         .addRoute("::", 0)
                         .addDnsServer("1.1.1.1")
                         .addDnsServer("8.8.8.8")
-                        .apply {
-                            try {
-                                addDisallowedApplication(packageName)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "addDisallowedApplication failed: ${e.message}")
-                            }
+
+                    // خود اپ از VPN مستثنی می‌شود تا routing loop نشود
+                    try {
+                        builder.addDisallowedApplication(packageName)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "addDisallowedApplication(self) failed: ${e.message}")
+                    }
+                    // اپ‌های انتخابی کاربر (split tunneling) هم از VPN عبور نمی‌کنند
+                    for (pkg in ProfileManager.loadExcludedPackages(this@SchnellVpnService)) {
+                        if (pkg == packageName) continue
+                        try {
+                            builder.addDisallowedApplication(pkg)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "exclude $pkg failed: ${e.message}")
                         }
-                        .establish()
+                    }
+                    builder.establish()
                 } ?: throw IllegalStateException("ساخت TUN ناموفق بود — مجوز VPN داده نشده")
                 tunPfd = tun // keep a reference immediately so cleanup can always close it
 
@@ -206,13 +249,50 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
     private fun startStatsCollection() {
         statsJob = serviceScope.launch {
+            var lastTx = 0L
+            var lastRx = 0L
+            var lastAt = System.currentTimeMillis()
             while (isActive && isConnected.get()) {
                 // hev: [txPackets, txBytes, rxPackets, rxBytes] (cumulative since start)
                 val s = HevBridge.getStats()
-                if (s != null && s.size >= 4) VpnStatus.setTxRx(s[1], s[3])
+                if (s != null && s.size >= 4) {
+                    val tx = s[1]
+                    val rx = s[3]
+                    VpnStatus.setTxRx(tx, rx)
+
+                    val now = System.currentTimeMillis()
+                    val dtMs = (now - lastAt).coerceAtLeast(1L)
+                    val delta = (tx - lastTx).coerceAtLeast(0L) + (rx - lastRx).coerceAtLeast(0L)
+                    val speed = delta * 1000L / dtMs // bytes/sec
+                    lastTx = tx; lastRx = rx; lastAt = now
+
+                    val started = VpnStatus.connectStartMillis.value
+                    val secs = if (started > 0L) ((now - started) / 1000L).toInt() else 0
+                    updateNotificationRich(secs, speed, tx + rx)
+                }
                 delay(STATS_INTERVAL_MS)
             }
         }
+    }
+
+    /** اعلان غنی: مدت اتصال + سرعت لحظه‌ای + حجم کل. */
+    private fun updateNotificationRich(secs: Int, bytesPerSec: Long, totalBytes: Long) {
+        val text = "⏱ ${fmtDuration(secs)}   ⬇ ${fmtSize(bytesPerSec)}/s   Σ ${fmtSize(totalBytes)}"
+        updateNotification(text, true)
+    }
+
+    private fun fmtDuration(sec: Int): String {
+        val h = sec / 3600; val m = (sec % 3600) / 60; val s = sec % 60
+        return String.format(java.util.Locale.US, "%02d:%02d:%02d", h, m, s)
+    }
+
+    private fun fmtSize(bytes: Long): String {
+        if (bytes < 1024L) return "$bytes B"
+        val kb = bytes / 1024.0
+        if (kb < 1024.0) return String.format(java.util.Locale.US, "%.1f KB", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024.0) return String.format(java.util.Locale.US, "%.1f MB", mb)
+        return String.format(java.util.Locale.US, "%.2f GB", mb / 1024.0)
     }
 
     // ========== CoreCallbackHandler ==========

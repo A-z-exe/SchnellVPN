@@ -13,7 +13,7 @@ import java.net.URLDecoder
  */
 object XrayConfigBuilder {
 
-    fun buildConfig(link: String, socksPort: Int = 10808): String {
+    fun buildConfig(link: String, socksPort: Int = 10808, hotspotHttpPort: Int = 0): String {
         val outbound = parseOutbound(link)
 
         val root = JSONObject()
@@ -22,7 +22,7 @@ object XrayConfigBuilder {
             put("access", ""); put("error", ""); put("loglevel", "warning")
         })
 
-        root.put("inbounds", JSONArray().put(JSONObject().apply {
+        val inbounds = JSONArray().put(JSONObject().apply {
             put("tag", "socks"); put("port", socksPort); put("listen", "127.0.0.1")
             put("protocol", "socks")
             put("sniffing", JSONObject().apply {
@@ -33,7 +33,24 @@ object XrayConfigBuilder {
             put("settings", JSONObject().apply {
                 put("auth", "noauth"); put("udp", true); put("allowTransparent", false)
             })
-        }))
+        })
+
+        // اختیاری: یک پروکسی HTTP روی شبکهی محلی برای اشتراک VPN روی هات‌اسپات (بدون روت).
+        if (hotspotHttpPort in 1..65535) {
+            inbounds.put(JSONObject().apply {
+                put("tag", "hotspot-http")
+                put("port", hotspotHttpPort)
+                put("listen", "0.0.0.0")
+                put("protocol", "http")
+                put("sniffing", JSONObject().apply {
+                    put("enabled", true)
+                    put("destOverride", JSONArray().put("http").put("tls"))
+                })
+                put("settings", JSONObject().apply { put("timeout", 300) })
+            })
+        }
+
+        root.put("inbounds", inbounds)
 
         root.put("outbounds", JSONArray().apply {
             put(outbound) // first outbound = default route

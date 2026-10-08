@@ -76,6 +76,16 @@ object ProfileStore {
         prefs(context).edit().putInt(KEY_ACTIVE, id).apply()
     }
 
+    /** لینک سرور انتخاب‌شده‌ی پروفایل فعال (برای «اتصال خودکار» هنگام روشن شدن گوشی). */
+    fun activeServerLink(context: Context): String? {
+        val profiles = load(context)
+        if (profiles.isEmpty()) return null
+        val activeId = loadActiveId(context)
+        val p = profiles.find { it.id == activeId } ?: profiles.first()
+        return p.servers.find { it.id == p.selectedServerId }?.link
+            ?: p.servers.firstOrNull()?.link
+    }
+
     fun clear(context: Context) {
         prefs(context).edit().remove(KEY_PROFILES).remove(KEY_ACTIVE).apply()
     }
