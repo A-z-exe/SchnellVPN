@@ -7,6 +7,7 @@ import android.os.Build
 import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -78,6 +79,8 @@ val LightColors = AppColors(
 
 enum class Tab { HOME, SERVERS, APPS, SETTINGS }
 
+data class ShareData(val title: String, val text: String)
+
 class MainActivity : ComponentActivity() {
 
     // لیست واقعی سرورها — خالی شروع می‌شه، فقط با لینک Subscription واقعی پر می‌شه
@@ -104,6 +107,10 @@ class MainActivity : ComponentActivity() {
     private var disconnectOnLock by mutableStateOf(false)
     private var hotspotShare by mutableStateOf(false)
     private var excludedPackages by mutableStateOf<Set<String>>(emptySet())
+    private var triggerApps by mutableStateOf<Set<String>>(emptySet())
+    private var shareData by mutableStateOf<ShareData?>(null)
+    private var showHotspotInfo by mutableStateOf(false)
+    private var hotspotIps by mutableStateOf<List<String>>(emptyList())
 
     // پروفایل‌های مستقل (پروفایل ۱، ۲، ۳ …) — هر کدام سرورها و اشتراک خودش را دارد
     private val profiles = mutableStateListOf<ServerProfile>()
@@ -201,6 +208,7 @@ class MainActivity : ComponentActivity() {
         disconnectOnLock = ProfileManager.loadDisconnectOnLock(this)
         hotspotShare = ProfileManager.loadHotspotShare(this)
         excludedPackages = ProfileManager.loadExcludedPackages(this)
+        triggerApps = ProfileManager.loadTriggerApps(this)
 
         setContent {
             val colors = if (isDark) DarkColors else LightColors
@@ -293,6 +301,11 @@ class MainActivity : ComponentActivity() {
                                             profiles = profiles,
                                             activeProfileId = activeProfileId,
                                             onSwitchProfile = { switchProfile(it) },
+                                            onShareProfile = {
+                                                activeProfile()?.let { p ->
+                                                    shareData = ShareData("اشتراک‌گذاری ${p.name}", shareTextFor(p))
+                                                }
+                                            },
                                             onRefresh = { refreshSubscriptions(scope) },
                                             onQueryChange = { searchQuery = it },
                                             onSelect = { id ->
@@ -307,16 +320,24 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             },
                                             onTestPings = {
-                                                scope.launch {
-                                                    showToast(scope, "در حال تست پینگ…")
-                                                    val results = PingTester.pingAll(servers.toList())
+                                                if (!NetworkUtils.hasInternet(this@MainActivity)) {
                                                     for (i in servers.indices) {
-                                                        val s = servers[i]
-                                                        servers[i] = s.copy(pingMs = results[s.id])
+                                                        servers[i] = servers[i].copy(pingMs = null)
                                                     }
                                                     syncActiveProfile()
-                                                    val ok = results.values.count { it != null }
-                                                    showToast(scope, "پینگ: $ok از ${results.size} سرور پاسخ دادند")
+                                                    showToast(scope, "اینترنت گوشی وصل نیست — پینگ امکان‌پذیر نیست")
+                                                } else {
+                                                    scope.launch {
+                                                        showToast(scope, "در حال تست پینگ…")
+                                                        val results = PingTester.pingAll(servers.toList())
+                                                        for (i in servers.indices) {
+                                                            val s = servers[i]
+                                                            servers[i] = s.copy(pingMs = results[s.id])
+                                                        }
+                                                        syncActiveProfile()
+                                                        val ok = results.values.count { it != null }
+                                                        showToast(scope, "پینگ: $ok از ${results.size} سرور پاسخ دادند")
+                                                    }
                                                 }
                                             },
                                             onImport = { addLinkInput = ""; showAddLinkDialog = true },
@@ -327,11 +348,25 @@ class MainActivity : ComponentActivity() {
                                             glass = glass,
                                             isDark = isDark,
                                             excluded = excludedPackages,
-                                            onToggle = { pkg ->
+                                            triggers = triggerApps,
+                                            onToggleExcluded = { pkg ->
                                                 excludedPackages =
                                                     if (pkg in excludedPackages) excludedPackages - pkg
                                                     else excludedPackages + pkg
                                                 ProfileManager.saveExcludedPackages(this@MainActivity, excludedPackages)
+                                            },
+                                            onToggleTrigger = { pkg ->
+                                                triggerApps =
+                                                    if (pkg in triggerApps) triggerApps - pkg
+                                                    else triggerApps + pkg
+                                                ProfileManager.saveTriggerApps(this@MainActivity, triggerApps)
+                                            },
+                                            onOpenAccessibilitySettings = {
+                                                runCatching {
+                                                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                                }.onFailure {
+                                                    showToast(scope, "باز کردن تنظیمات دسترسی ممکن نشد")
+                                                }
                                             }
                                         )
                                         Tab.SETTINGS -> SettingsScreen(
@@ -357,6 +392,19 @@ class MainActivity : ComponentActivity() {
                                             onToggleHotspotShare = {
                                                 hotspotShare = !hotspotShare
                                                 ProfileManager.saveHotspotShare(this@MainActivity, hotspotShare)
+                                                if (hotspotShare) {
+                                                    hotspotIps = NetworkUtils.localIpv4Addresses()
+                                                    showHotspotInfo = true
+                                                }
+                                            },
+                                            onShowHotspotInfo = {
+                                                hotspotIps = NetworkUtils.localIpv4Addresses()
+                                                showHotspotInfo = true
+                                            },
+                                            onShareProfile = { id ->
+                                                profiles.find { it.id == id }?.let { p ->
+                                                    shareData = ShareData("اشتراک‌گذاری ${p.name}", shareTextFor(p))
+                                                }
                                             },
                                             profiles = profiles,
                                             activeProfileId = activeProfileId,
@@ -393,6 +441,19 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        shareData?.let { data ->
+                            ShareDialog(colors, data.title, data.text, onDismiss = { shareData = null })
+                        }
+
+                        if (showHotspotInfo) {
+                            HotspotInfoDialog(
+                                colors = colors,
+                                ips = hotspotIps,
+                                port = 10809,
+                                onDismiss = { showHotspotInfo = false }
+                            )
+                        }
+
                         toastText?.let { msg ->
                             Box(
                                 Modifier
@@ -422,6 +483,13 @@ class MainActivity : ComponentActivity() {
 
     // ==================== پروفایل‌ها ====================
     private fun activeProfile(): ServerProfile? = profiles.find { it.id == activeProfileId }
+
+    /** متن قابل اشتراک‌گذاری یک پروفایل: لینک اشتراک، یا لینک سرور انتخاب‌شده. */
+    private fun shareTextFor(profile: ServerProfile): String {
+        if (profile.subscriptionUrls.isNotEmpty()) return profile.subscriptionUrls.joinToString("\n")
+        val s = profile.servers.find { it.id == profile.selectedServerId } ?: profile.servers.firstOrNull()
+        return s?.link ?: ""
+    }
 
     private fun replaceProfile(updated: ServerProfile) {
         val i = profiles.indexOfFirst { it.id == updated.id }
@@ -678,6 +746,11 @@ class MainActivity : ComponentActivity() {
             stopVpn()
             showToast(scope, "اتصال قطع شد")
         } else {
+            // اگر اینترنت گوشی خاموش باشد، هرگز نباید «وصل» شود
+            if (!NetworkUtils.hasInternet(this)) {
+                showToast(scope, "اینترنت گوشی وصل نیست — اول وای‌فای یا دیتا را روشن کن")
+                return
+            }
             val link = servers.find { it.id == selectedServerId }?.link
             if (link == null) {
                 showToast(scope, "اول یک سرور انتخاب کن")
@@ -996,6 +1069,7 @@ fun ServersScreen(
     profiles: List<ServerProfile>,
     activeProfileId: Int,
     onSwitchProfile: (Int) -> Unit,
+    onShareProfile: () -> Unit,
     onRefresh: () -> Unit,
     onQueryChange: (String) -> Unit,
     onSelect: (Int) -> Unit,
@@ -1012,7 +1086,13 @@ fun ServersScreen(
             Spacer(Modifier.height(12.dp))
             ProfileChips(colors, profiles, activeProfileId, onSwitchProfile)
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "اشتراک‌گذاری این پروفایل (لینک و QR)",
+            color = colors.amber, fontSize = 11.5.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable { onShareProfile() }.padding(vertical = 2.dp)
+        )
+        Spacer(Modifier.height(8.dp))
         BasicField(colors, query, onQueryChange, "جستجوی کشور یا سرور")
         Spacer(Modifier.height(12.dp))
         PrimaryButton(
@@ -1081,6 +1161,8 @@ fun SettingsScreen(
     onToggleDisconnectOnLock: () -> Unit,
     hotspotShare: Boolean,
     onToggleHotspotShare: () -> Unit,
+    onShowHotspotInfo: () -> Unit,
+    onShareProfile: (Int) -> Unit,
     profiles: List<ServerProfile>,
     activeProfileId: Int,
     onSwitchProfile: (Int) -> Unit,
@@ -1105,10 +1187,16 @@ fun SettingsScreen(
         if (hotspotShare) {
             Spacer(Modifier.height(6.dp))
             Text(
-                "دستگاه‌های متصل به هات‌اسپات باید در تنظیمات وای‌فای، پروکسی «دستی» را روی IP هات‌اسپات این گوشی و پورت 10809 بگذارند.",
+                "دستگاه‌های متصل باید در تنظیمات وای‌فای، پروکسی «دستی» را روی IP هات‌اسپات این گوشی و پورت 10809 بگذارند.",
                 color = colors.textDim, fontSize = 10.5.sp
             )
         }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "راهنمای کامل اتصال دستگاه‌ها",
+            color = colors.amber, fontSize = 11.5.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable { onShowHotspotInfo() }.padding(vertical = 6.dp)
+        )
 
         Spacer(Modifier.height(18.dp))
         Text("پروفایل‌ها", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -1135,6 +1223,10 @@ fun SettingsScreen(
                         Spacer(Modifier.height(3.dp))
                         Text("${p.servers.size} سرور", color = colors.textDim, fontSize = 11.sp)
                     }
+                    Text(
+                        "⤴", color = colors.teal, fontSize = 15.sp,
+                        modifier = Modifier.clickable { onShareProfile(p.id) }.padding(6.dp)
+                    )
                     Text(
                         "✕", color = colors.coral, fontSize = 15.sp,
                         modifier = Modifier.clickable { onDeleteProfile(p.id) }.padding(6.dp)

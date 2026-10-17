@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,8 +49,9 @@ class InstalledApp(
 )
 
 /**
- * صفحه‌ی «اپ‌های خارج از VPN» (Split tunneling):
- * اپ‌هایی که اینجا تیک می‌زنند از VPN عبور نمی‌کنند (مثلاً همراه بانک‌ها).
+ * صفحه‌ی اپ‌ها با دو حالت:
+ *  - «خارج از VPN»: اپ‌هایی که نباید از VPN عبور کنند (Split tunneling)
+ *  - «روشن‌شدن VPN با باز شدن اپ»: اپ‌هایی که وقتی VPN خاموش است و باز می‌شوند، VPN خودکار وصل شود.
  */
 @Composable
 fun AppsScreen(
@@ -56,11 +59,20 @@ fun AppsScreen(
     glass: Boolean,
     isDark: Boolean,
     excluded: Set<String>,
-    onToggle: (String) -> Unit
+    triggers: Set<String>,
+    onToggleExcluded: (String) -> Unit,
+    onToggleTrigger: (String) -> Unit,
+    onOpenAccessibilitySettings: () -> Unit
 ) {
     val context = LocalContext.current
     var apps by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var mode by remember { mutableStateOf(0) } // 0 = exclude, 1 = trigger
+    var refresh by remember { mutableStateOf(0) }
+
+    val accessibilityEnabled = remember(refresh, mode) {
+        NetworkUtils.isAccessibilityEnabled(context)
+    }
 
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) {
@@ -71,7 +83,6 @@ fun AppsScreen(
             for (info in list) {
                 if (info.packageName == self) continue
                 val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                // اپ‌های سیستمی بدون آیکون لانچر را رد کن تا لیست شلوغ نشود
                 if (isSystem && pm.getLaunchIntentForPackage(info.packageName) == null) continue
                 val label = try { pm.getApplicationLabel(info).toString() } catch (e: Exception) { info.packageName }
                 val icon: Bitmap? = try { pm.getApplicationIcon(info).toBitmap(96, 96) } catch (e: Exception) { null }
@@ -83,15 +94,63 @@ fun AppsScreen(
         loading = false
     }
 
+    val activeSet = if (mode == 0) excluded else triggers
+    val activeCount = activeSet.size
+
     GlassBackground(isDark = isDark, enabled = glass) {
         Column(Modifier.fillMaxSize().padding(20.dp)) {
-            Text("اپ‌های خارج از VPN", color = colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
+            Text("مدیریت اپ‌ها", color = colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ModeChip(colors, "خارج از VPN", mode == 0, Modifier.weight(1f)) { mode = 0 }
+                ModeChip(colors, "باز شدن اپ → روشن شدن VPN", mode == 1, Modifier.weight(1f)) { mode = 1 }
+            }
+            Spacer(Modifier.height(10.dp))
+
             Text(
-                "اپ‌هایی که تیک می‌زنی از VPN عبور نمی‌کنند (مثلاً همراه بانک). انتخاب‌شده: ${excluded.size}",
+                if (mode == 0) {
+                    "اپ‌هایی که تیک می‌زنی از VPN عبور نمی‌کنند (مثلاً همراه بانک). انتخاب‌شده: $activeCount"
+                } else {
+                    "اپ‌هایی که با باز شدنشان، اگر VPN خاموش باشد خودکار روشن می‌شود. انتخاب‌شده: $activeCount"
+                },
                 color = colors.textDim, fontSize = 11.5.sp
             )
-            Spacer(Modifier.height(12.dp))
+
+            if (mode == 1) {
+                Spacer(Modifier.height(10.dp))
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(colors.surface2, RoundedCornerShape(14.dp))
+                        .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        if (accessibilityEnabled) "سرویس دسترسی فعال است ✓"
+                        else "برای این قابلیت، «سرویس دسترسی» باید فعال شود.",
+                        color = if (accessibilityEnabled) colors.teal else colors.coral,
+                        fontSize = 12.sp, fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "VPN با پروفایل و سرور فعالِ فعلی روشن می‌شود.",
+                        color = colors.textDim, fontSize = 11.sp
+                    )
+                    if (!accessibilityEnabled) {
+                        Spacer(Modifier.height(8.dp))
+                        GhostButton(colors, "باز کردن تنظیمات دسترسی", onClick = onOpenAccessibilitySettings)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "بررسی مجدد",
+                        color = colors.amber, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { refresh++ }.padding(vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
             if (loading) {
                 Text("در حال خواندن لیست اپ‌ها…", color = colors.textDim, fontSize = 12.sp)
             } else {
@@ -102,13 +161,45 @@ fun AppsScreen(
                             glass = glass,
                             isDark = isDark,
                             app = app,
-                            checked = excluded.contains(app.packageName),
-                            onToggle = { onToggle(app.packageName) }
+                            checked = activeSet.contains(app.packageName),
+                            onToggle = {
+                                if (mode == 0) onToggleExcluded(app.packageName)
+                                else onToggleTrigger(app.packageName)
+                            }
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ModeChip(
+    colors: AppColors,
+    label: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier
+            .background(
+                if (active) colors.amber.copy(alpha = 0.25f) else colors.surface2,
+                RoundedCornerShape(12.dp)
+            )
+            .border(1.dp, if (active) colors.amber else colors.border, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            color = if (active) colors.amber else colors.text,
+            fontSize = 11.sp,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+            textAlign = TextAlign.Center
+        )
     }
 }
 

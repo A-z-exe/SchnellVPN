@@ -22,6 +22,7 @@ object ProfileManager {
     private const val KEY_DISCONNECT_ON_LOCK = "disconnect_on_lock"
     private const val KEY_HOTSPOT_SHARE = "hotspot_share"
     private const val KEY_EXCLUDED_APPS = "excluded_apps"
+    private const val KEY_TRIGGER_APPS = "trigger_apps"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -181,6 +182,25 @@ object ProfileManager {
 
     fun loadExcludedPackages(context: Context): Set<String> {
         val raw = prefs(context).getString(KEY_EXCLUDED_APPS, null) ?: return emptySet()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length())
+                .mapNotNull { arr.optString(it, "").takeIf { s -> s.isNotBlank() } }
+                .toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
+    /** اپ‌هایی که با باز شدنشان، اگر VPN خاموش باشد خودکار روشن می‌شود. */
+    fun saveTriggerApps(context: Context, packages: Set<String>) {
+        val arr = JSONArray()
+        packages.forEach { arr.put(it) }
+        prefs(context).edit().putString(KEY_TRIGGER_APPS, arr.toString()).apply()
+    }
+
+    fun loadTriggerApps(context: Context): Set<String> {
+        val raw = prefs(context).getString(KEY_TRIGGER_APPS, null) ?: return emptySet()
         return try {
             val arr = JSONArray(raw)
             (0 until arr.length())

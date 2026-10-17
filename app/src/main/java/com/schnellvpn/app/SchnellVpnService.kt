@@ -3,6 +3,8 @@ package com.schnellvpn.app
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -48,6 +50,11 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     private val isCleaning = AtomicBoolean(false)
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    /** آیکن رنگی اپ برای اعلان بازشده (آیکن نوار وضعیت از drawable تک‌رنگ می‌آید). */
+    private val largeIcon: Bitmap? by lazy {
+        try { BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher) } catch (e: Exception) { null }
+    }
 
     /** وقتی صفحه قفل می‌شود و گزینه‌اش فعال باشد، اتصال قطع می‌شود. */
     private val screenOffReceiver = object : BroadcastReceiver() {
@@ -189,6 +196,17 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 if (disconnectRequested.get()) throw CancellationException("Disconnected during connect")
 
                 isConnected.set(true)
+
+                // تا وقتی مطمئن نشدیم دیتا واقعاً رد می‌شود، UI را «در حال اتصال» نگه می‌داریم.
+                // (پینگ فقط می‌گوید پورت سرور باز است؛ دلیل اصلی «وصل می‌شوم ولی چیزی باز نمی‌شود» همین بود.)
+                withContext(Dispatchers.Main) { updateNotification("⏳ بررسی عبور دیتا…", true) }
+                delay(800) // فرصت کوتاه تا SOCKS محلی Xray بالا بیاید
+                val tunnelOk = TunnelProbe.probe(SOCKS_PORT)
+                if (disconnectRequested.get()) throw CancellationException("Disconnected during connect")
+                if (!tunnelOk) {
+                    throw IllegalStateException("اتصال برقرار شد ولی دیتا رد نمی‌شود — سرور یا کانفیگ را چک کن")
+                }
+
                 VpnStatus.setConnecting(false)
                 VpnStatus.setConnected(true)
                 VpnStatus.setConnectStartMillis(System.currentTimeMillis())
@@ -338,7 +356,8 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("SchnellVPN")
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setSmallIcon(R.drawable.ic_stat_schnell)
+            .setLargeIcon(largeIcon)
             .setOngoing(ongoing)
             .setContentIntent(pi)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "قطع", disconnectPi)

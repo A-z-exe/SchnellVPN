@@ -56,6 +56,28 @@
             </intent-filter>
         </receiver>
 
+        <!-- اکتیویتی شفاف برای استارت VPN از سرویس دسترسی -->
+        <activity
+            android:name=".AutoConnectActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- روشن‌کردن خودکار VPN با باز شدن اپ‌های انتخاب‌شده -->
+        <service
+            android:name=".TriggerAccessibilityService"
+            android:exported="true"
+            android:label="SchnellVPN — روشن‌کردن خودکار"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <service
             android:name=".SchnellVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
