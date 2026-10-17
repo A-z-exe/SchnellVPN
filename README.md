@@ -1,22 +1,44 @@
-# SchnellVPN (نسخه تست)
+# SchnellVPN
 
 [![Build](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml/badge.svg)](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml)
 ![Platform](https://img.shields.io/badge/platform-Android-green)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
 
-یک کلاینت VPN برای اندروید با رابط کاربری Jetpack Compose که روی هسته‌ی Xray کار می‌کنه.
+کلاینت VPN برای اندروید با رابط کاربری Jetpack Compose که روی هسته‌ی Xray کار می‌کند.
 
 ## ✨ ویژگی‌ها
 
-- ✅ رابط کاربری Compose با حالت تاریک/روشن
-- ✅ پشتیبانی از لینک‌های: VLESS (TCP / WS / gRPC / HTTPUpgrade / XHTTP، همراه با TLS و Reality)، VMess، Trojan، Shadowsocks
-- ✅ ورود لینک Subscription (لیست ساده، Base64، یا JSON به سبک v2rayN)
+### اتصال و پروتکل
+- ✅ پشتیبانی از VLESS (TCP / WS / gRPC / HTTPUpgrade / XHTTP همراه TLS و Reality)، VMess، Trojan و Shadowsocks
 - ✅ تست پینگ واقعی (زمان اتصال TCP به سرور)
-- ✅ دکمه‌ی «بروزرسانی اشتراک»: دانلود دوباره‌ی همه‌ی اشتراک‌ها، تست پینگ خودکار و مرتب‌سازی از کمترین پینگ (سرورهای اضافه‌شده با QR حفظ می‌شن)
-- ✅ اسکن QR با دوربین: لینک اشتراک (https) یا کانفیگ vless/vmess/trojan/ss
-- ✅ تم شیشه‌ای در صفحه‌ی اصلی (از تنظیمات قابل خاموش‌کردنه) + کارت «۳ برنامه‌ی پرمصرف امروز» (نیاز به دسترسی Usage access)
-- ✅ اتصال یک‌کلیکی، نمایش مدت اتصال و حجم مصرفی
-- ⚠️ پلاگین‌های Shadowsocks (v2ray-plugin و …) پشتیبانی نمی‌شن؛ این لینک‌ها موقع ورود رد می‌شن.
+- ✅ **تست عبور واقعی دیتا بعد از اتصال**: تا وقتی یک درخواست واقعی از داخل تونل موفق نشود، وضعیت «متصل» اعلام نمی‌شود؛ در صورت عدم عبور دیتا، اتصال قطع و خطا نمایش داده می‌شود.
+- ✅ **جلوگیری از اتصال بدون اینترنت**: اگر وای‌فای/دیتا خاموش باشد، اتصال و پینگ انجام نمی‌شود و عدد الکی نمایش داده نمی‌شود.
+- ✅ نمایش مدت اتصال، حجم مصرفی و سرعت لحظه‌ای
+
+### پروفایل و سرور
+- ✅ **پروفایل‌های مستقل (پروفایل ۱، ۲، ۳ …)**: هر اشتراک سرورها و سرور انتخابی خودش را دارد
+- ✅ ورود لینک Subscription (لیست ساده، Base64، یا JSON به سبک v2rayN)
+- ✅ **افزودن لینک مستقیم سرور** (vless / vmess / trojan / ss) بدون نیاز به اشتراک
+- ✅ اسکن QR با دوربین
+- ✅ بروزرسانی اشتراک + تست پینگ خودکار + مرتب‌سازی از کمترین پینگ
+- ✅ **اشتراک‌گذاری پروفایل** با لینک و **QR Code** (کپی یا ارسال به اپ‌های دیگر)
+
+### اتوماسیون و شبکه
+- ✅ **Split tunneling**: انتخاب اپ‌هایی که نباید از VPN عبور کنند (مثل همراه بانک)
+- ✅ **روشن شدن خودکار VPN با باز شدن اپ‌های انتخابی** (نیاز به فعال‌کردن سرویس Accessibility)
+- ✅ **اتصال خودکار بعد از روشن شدن گوشی**
+- ✅ **قطع اتصال هنگام قفل شدن صفحه**
+- ✅ **اشتراک VPN روی هات‌اسپات (بدون روت)** به‌صورت پروکسی محلی روی پورت `10809` + راهنمای کامل اتصال دستگاه‌ها
+
+### رابط کاربری
+- ✅ **صفحه‌ی اول با انیمیشن ورود لوگو** به وسط صفحه
+- ✅ **تم شیشه‌ای در همه‌ی صفحه‌ها** + حالت تاریک/روشن
+- ✅ **کارت پرمصرف‌ترین اپ‌ها در ۲۴ ساعت گذشته** + نمایش لحظه‌ای اپی که دارد مصرف می‌کند
+- ✅ **اعلان غنی**: مدت اتصال، سرعت لحظه‌ای و حجم کل
+- ✅ **آیکن اختصاصی اپ در نوار وضعیت** کنار آیکن اینترنت
+
+> ⚠️ پلاگین‌های Shadowsocks (v2ray-plugin و …) پشتیبانی نمی‌شوند و این لینک‌ها موقع ورود رد می‌شوند.
 
 ## 🧱 معماری
 
@@ -24,45 +46,50 @@
 اپ‌ها ─► TUN (VpnService) ─► hev-socks5-tunnel ─► SOCKS 127.0.0.1:10808 ─► Xray-core ─► سرور
 ```
 
-- `SchnellVpnService.kt` — VpnService، foreground service، چرخه‌ی اتصال
+- `SchnellVpnService.kt` — VpnService، foreground service، چرخه‌ی اتصال، تست تونل و آمار
 - `XrayConfigBuilder.kt` — تبدیل لینک/JSON به کانفیگ Xray
 - `SubscriptionFetcher.kt` — دانلود و پارس Subscription
+- `TunnelProbe.kt` — بررسی واقعی عبور دیتا از تونل
+- `NetworkUtils.kt` — بررسی اینترنت، IP محلی و وضعیت Accessibility
 - `HevBridge.kt` + `hev/htproxy/TProxyService.kt` — پل JNI به hev-socks5-tunnel
+- `ProfileStore.kt` / `ServerProfile.kt` — ذخیره‌ی پروفایل‌های مستقل
+- `AppsScreen.kt` / `TriggerAccessibilityService.kt` — مدیریت اپ‌ها و روشن‌کردن خودکار
+- `ShareDialog.kt` / `HotspotInfoDialog.kt` — اشتراک‌گذاری QR و راهنمای هات‌اسپات
 - `PingTester.kt`, `ProfileManager.kt`, `VpnStatus.kt`, `MainActivity.kt`
 
 نکات مهم طراحی (برای جلوگیری از باگ‌های قبلی):
 
-1. کلاس JNI باید دقیقاً `hev.htproxy.TProxyService` با امضاهای `(String,Int):Boolean`، `():Boolean`، `():Boolean`، `():LongArray` باشه؛ هر ناهمخوانی یعنی SIGABRT موقع لود.
-2. خود اپ با `addDisallowedApplication` از VPN مستثنی شده، وگرنه ترافیک Xray به TUN برمی‌گرده (حلقه).
-3. `startForegroundService` حتماً باید با `startForeground` جواب داده بشه.
-4. Xray فقط SOCKS محلی باز می‌کنه (`startLoop(config, 0)`)؛ TUN فقط دست hev است.
+1. کلاس JNI باید دقیقاً `hev.htproxy.TProxyService` با امضاهای `(String,Int):Boolean`، `():Boolean`، `():Boolean`، `():LongArray` باشد؛ هر ناهم‌خوانی یعنی SIGABRT موقع لود.
+2. خود اپ با `addDisallowedApplication` از VPN مستثنی شده، وگرنه ترافیک Xray به TUN برمی‌گردد (حلقه).
+3. `startForegroundService` حتماً باید با `startForeground` جواب داده شود.
+4. Xray فقط SOCKS محلی باز می‌کند (`startLoop(config, 0)`)؛ TUN فقط دست hev است.
 5. `hev-socks5-tunnel` روی یک commit ثابت (`HEV_REF` در workflow) پین شده.
+6. بعد از اتصال، `TunnelProbe` از طریق SOCKS یک درخواست واقعی می‌فرستد؛ فقط در صورت موفقیت وضعیت «متصل» می‌شود.
 
 ## 🚀 ساخت و تست
 
 ### Build ابری (GitHub Actions)
 
-با هر push یا PR، workflow اول **تست‌های واحد** رو اجرا می‌کنه، بعد APK رو می‌سازه و وجود `libhev-socks5-tunnel.so` و `libgojni.so` داخل APK رو چک می‌کنه.
-APK از بخش **Artifacts** همون run قابل دانلوده.
+با هر push یا PR، workflow اول **تست‌های واحد** را اجرا می‌کند، بعد APK را می‌سازد و وجود `libhev-socks5-tunnel.so` و `libgojni.so` داخل APK را چک می‌کند.
+APK از بخش **Artifacts** همان run یا از **Releases** قابل دانلود است.
 
 ### Build محلی
 
 ```
 git clone https://github.com/A-z-exe/SchnellVPN.git
 cd SchnellVPN
-# libv2ray.aar رو در app/libs/ و hev-socks5-tunnel رو در app/src/main/jni/ بذار (مثل workflow)
+# libv2ray.aar را در app/libs/ و hev-socks5-tunnel را در app/src/main/jni/ بگذار (مثل workflow)
 ./gradlew testDebugUnitTest assembleDebug
 ```
 
 ## 🔐 تنظیم سرورها
 
-لینک Subscription رو در صفحه‌ی ورود وارد کن. لینک‌های `http://` (بدون TLS) به‌صورت پیش‌فرض توسط اندروید مسدوده؛
-این کار عمداً فعال نشده چون یک مهاجم وسط مسیر می‌تونه سرورهای جعلی تزریق کنه.
+لینک Subscription یا لینک مستقیم سرور را در صفحه‌ی ورود وارد کن. لینک‌های `http://` نیز پشتیبانی می‌شوند (برای سازگاری با اشتراک‌های قدیمی)؛ با این حال استفاده از `https://` امن‌تر است.
 
 ## 📄 مجوز
 
-کتابخونه‌ی `AndroidLibXrayLite` تحت LGPL-3.0 و `hev-socks5-tunnel` تحت MIT منتشر شده؛ جزئیات در ریپوهای اصلی‌شون.
+کتابخانه‌ی `AndroidLibXrayLite` تحت LGPL-3.0 و `hev-socks5-tunnel` تحت MIT منتشر شده؛ جزئیات در ریپوهای اصلی‌شان.
 
 ## ⚠️ هشدار مسئولیت
 
-استفاده از این اپ باید مطابق قوانین کشور محل استفاده‌ی کاربر باشه. توسعه‌دهنده مسئولیتی در قبال نحوه‌ی استفاده‌ی کاربران نهایی ندارد.
+استفاده از این اپ باید مطابق قوانین کشور محل استفاده‌ی کاربر باشد. توسعه‌دهنده مسئولیتی در قبال نحوه‌ی استفاده‌ی کاربران نهایی ندارد.
