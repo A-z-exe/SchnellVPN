@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SchnellVPN - Android VPN Client (VLESS, VMess, Trojan, Shadowsocks) | GitHub</title>
+  <meta name="description" content="SchnellVPN is an Android VPN client built with Kotlin, Jetpack Compose and Xray-core. Supports VLESS Reality, VMess, Trojan and Shadowsocks, multiple profiles, QR import, split tunneling, auto-connect on boot and hotspot sharing.">
+  <meta name="keywords" content="SchnellVPN, Schnell VPN, Android VPN, VPN client, Xray, v2ray, VLESS, Reality, VMess, Trojan, Shadowsocks, Jetpack Compose, split tunneling, GitHub">
+  <meta name="robots" content="index,follow">
+  <meta name="author" content="A-z-exe (Amirhosseinzarei)">
+  <link rel="canonical" href="https://a-z-exe.github.io/SchnellVPN/">
+  <link rel="icon" href="https://raw.githubusercontent.com/A-z-exe/SchnellVPN/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="SchnellVPN">
+  <meta property="og:title" content="SchnellVPN - Android VPN Client (VLESS, VMess, Trojan, Shadowsocks)">
+  <meta property="og:description" content="Fast, modern Android VPN client powered by Xray-core. VLESS Reality, VMess, Trojan, Shadowsocks, multi-profile, QR, split tunneling, hotspot sharing.">
+  <meta property="og:url" content="https://a-z-exe.github.io/SchnellVPN/">
+  <meta property="og:image" content="https://raw.githubusercontent.com/A-z-exe/SchnellVPN/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SchnellVPN - Android VPN Client">
+  <meta name="twitter:description" content="Android VPN client with VLESS Reality, VMess, Trojan and Shadowsocks, built with Jetpack Compose + Xray-core.">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "SchnellVPN",
+    "alternateName": ["Schnell VPN", "SchnellVPN Android"],
+    "applicationCategory": "SecurityApplication",
+    "operatingSystem": "Android 7.0+",
+    "description": "Android VPN client built with Kotlin, Jetpack Compose and Xray-core. Supports VLESS Reality, VMess, Trojan and Shadowsocks, multiple profiles, QR import, split tunneling and hotspot sharing.",
+    "url": "https://a-z-exe.github.io/SchnellVPN/",
+    "downloadUrl": "https://github.com/A-z-exe/SchnellVPN/releases/latest",
+    "codeRepository": "https://github.com/A-z-exe/SchnellVPN",
+    "author": { "@type": "Person", "name": "A-z-exe (Amirhosseinzarei)" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+
+  <style>
+    :root { --bg:#0a1020; --card:#151f38; --text:#edf1f7; --dim:#9aa7c2; --amber:#f5a623; --teal:#38c9b9; --border:#2b3a5c; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Tahoma, sans-serif; background: radial-gradient(1200px 600px at 10% 0%, #142b44 0%, var(--bg) 55%); color:var(--text); line-height:1.7; }
+    .wrap { max-width: 980px; margin:0 auto; padding: 28px 20px 60px; }
+    header { display:flex; align-items:center; gap:14px; margin-bottom: 26px; }
+    header img { width:56px; height:56px; border-radius:16px; }
+    h1 { font-size: 34px; margin: 0; }
+    h1 span { color: var(--amber); }
+    .lead { color: var(--dim); margin: 6px 0 0; }
+    .btns { display:flex; gap:12px; flex-wrap:wrap; margin: 22px 0 8px; }
+    .btn { display:inline-block; padding: 12px 20px; border-radius: 14px; text-decoration:none; font-weight:700; }
+    .primary { background: var(--amber); color:#1a1300; }
+    .ghost { background: var(--card); color: var(--text); border:1px solid var(--border); }
+    .card { background: rgba(255,255,255,.05); border:1px solid var(--border); border-radius: 20px; padding: 22px; margin: 18px 0; backdrop-filter: blur(8px); }
+    h2 { font-size: 22px; margin: 6px 0 12px; }
+    ul { margin: 0; padding-left: 20px; }
+    li { margin: 6px 0; }
+    code { background: rgba(255,255,255,.08); padding: 2px 6px; border-radius: 6px; }
+    .rtl { direction: rtl; text-align: right; }
+    .muted { color: var(--dim); font-size: 14px; }
+    footer { margin-top: 30px; color: var(--dim); font-size: 13px; }
+    a { color: var(--teal); }
+    @media (max-width: 600px) { h1 { font-size: 26px; } .wrap { padding: 20px 14px 40px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img src="https://raw.githubusercontent.com/A-z-exe/SchnellVPN/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="SchnellVPN Android VPN client logo">
+      <div>
+        <h1><span>Schnell</span>VPN</h1>
+        <p class="lead">Android VPN client · VLESS Reality · VMess · Trojan · Shadowsocks</p>
+      </div>
+    </header>
+
+    <p><strong>SchnellVPN</strong> is an Android VPN client built with <strong>Kotlin</strong>, <strong>Jetpack Compose</strong> and <strong>Xray-core</strong>. It supports VLESS (Reality, WebSocket, gRPC, HTTPUpgrade, XHTTP), VMess, Trojan and Shadowsocks, with multiple subscription profiles, QR import, direct config links, split tunneling, per-app auto-connect and hotspot sharing.</p>
+
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/A-z-exe/SchnellVPN/releases/latest">⬇ Download APK</a>
+      <a class="btn ghost" href="https://github.com/A-z-exe/SchnellVPN">View on GitHub</a>
+    </div>
+
+    <div class="card">
+      <h2>Features</h2>
+      <ul>
+        <li><strong>Protocols:</strong> VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan, Shadowsocks</li>
+        <li><strong>Real data probe:</strong> only reports “Connected” after a real request succeeds through the tunnel</li>
+        <li><strong>Multiple profiles:</strong> each subscription keeps its own servers</li>
+        <li><strong>QR import</strong> and direct config links</li>
+        <li><strong>Split tunneling:</strong> choose apps that bypass the VPN (e.g. banking apps)</li>
+        <li><strong>Per-app auto-connect</strong> when a selected app is opened</li>
+        <li><strong>Auto-connect on boot</strong> and <strong>disconnect on screen lock</strong></li>
+        <li><strong>Hotspot sharing</strong> (no root, local proxy on port 10809)</li>
+        <li><strong>Glass UI</strong>, dark/light theme, animated splash, 24h per-app data usage</li>
+      </ul>
+    </div>
+
+    <div class="card rtl" lang="fa" dir="rtl">
+      <h2>SchnellVPN چیست؟</h2>
+      <p>SchnellVPN یک کلاینت VPN برای اندروید است که با Kotlin، Jetpack Compose و Xray-core ساخته شده و از VLESS (Reality)، VMess، Trojan و Shadowsocks پشتیبانی می‌کند. امکاناتی مثل پروفایل‌های چندگانه، ورود با QR، Split tunneling، اتصال خودکار، اشتراک‌گذاری روی هات‌اسپات و تم شیشه‌ای دارد.</p>
+      <p>برای دانلود مستقیم APK از دکمه‌ی «Download APK» استفاده کن یا به صفحه‌ی <a href="https://github.com/A-z-exe/SchnellVPN/releases/latest">Releases</a> برو. سورس‌کد کامل روی <a href="https://github.com/A-z-exe/SchnellVPN">GitHub</a> است.</p>
+    </div>
+
+    <div class="card">
+      <h2>FAQ</h2>
+      <p><strong>Is SchnellVPN free?</strong> Yes, the source code is public on GitHub and the APK is free to download.</p>
+      <p><strong>Which protocols are supported?</strong> VLESS (Reality, WS, gRPC, XHTTP), VMess, Trojan and Shadowsocks.</p>
+      <p><strong>Does it work without Google Play Services?</strong> Yes. QR scanning is offline (ZXing) and does not require Play Services.</p>
+      <p><strong>Does hotspot sharing require root?</strong> No. SchnellVPN runs a local HTTP proxy on port 10809; devices must set a manual proxy. Transparent hotspot VPN without root is not possible on Android.</p>
+    </div>
+
+    <footer>
+      SchnellVPN · Developed by A-z-exe (Amirhosseinzarei) ·
+      <a href="https://github.com/A-z-exe/SchnellVPN">GitHub repository</a> ·
+      <a href="https://github.com/A-z-exe/SchnellVPN/releases/latest">Latest release</a>
+    </footer>
+  </div>
+</body>
+</html>

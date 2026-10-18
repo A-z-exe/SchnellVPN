@@ -5,6 +5,10 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
 ![Version](https://img.shields.io/badge/version-1.2.0-blue)
 
+**SchnellVPN** is an Android VPN client built with **Kotlin**, **Jetpack Compose** and **Xray-core**. It supports VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan and Shadowsocks, with multiple subscription profiles, QR import, direct config links, split tunneling, per-app auto-connect and hotspot sharing.
+
+[⬇️ Download the latest APK](https://github.com/A-z-exe/SchnellVPN/releases/latest) · [🌐 Website](https://a-z-exe.github.io/SchnellVPN/) · [📦 Releases](https://github.com/A-z-exe/SchnellVPN/releases)
+
 کلاینت VPN برای اندروید با رابط کاربری Jetpack Compose که روی هسته‌ی Xray کار می‌کند.
 
 ## ✨ ویژگی‌ها
@@ -85,6 +89,20 @@ cd SchnellVPN
 ## 🔐 تنظیم سرورها
 
 لینک Subscription یا لینک مستقیم سرور را در صفحه‌ی ورود وارد کن. لینک‌های `http://` نیز پشتیبانی می‌شوند (برای سازگاری با اشتراک‌های قدیمی)؛ با این حال استفاده از `https://` امن‌تر است.
+
+## ❓ سوالات متداول (FAQ)
+
+**SchnellVPN چیست؟** یک کلاینت VPN متن‌باز برای اندروید است که با Kotlin، Jetpack Compose و Xray-core ساخته شده و از VLESS (Reality)، VMess، Trojan و Shadowsocks پشتیبانی می‌کند.
+
+**آیا رایگان است؟** بله، سورس‌کد روی GitHub عمومی است و APK از بخش Releases رایگان دانلود می‌شود.
+
+**چه پروتکل‌هایی پشتیبانی می‌شوند؟** VLESS (Reality / WS / gRPC / HTTPUpgrade / XHTTP)، VMess، Trojan و Shadowsocks.
+
+**آیا به Google Play Services نیاز دارد؟** نه؛ اسکن QR به‌صورت آفلاین با ZXing انجام می‌شود.
+
+**اشتراک روی هات‌اسپات روت می‌خواهد؟** نه. یک پروکسی HTTP محلی روی پورت `10809` اجرا می‌شود و دستگاه‌ها باید پروکسی را دستی تنظیم کنند. اشتراک شفاف بدون روت در اندروید ممکن نیست.
+
+**اینترنت گوشی خاموش باشد چه می‌شود؟** اپ اجازه‌ی اتصال نمی‌دهد و پینگ الکی نشان نمی‌دهد؛ درستی مسیر هم بعد از اتصال با یک درخواست واقعی از داخل تونل بررسی می‌شود.
 
 ## 📄 مجوز
 
