@@ -31,6 +31,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,6 +53,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -292,32 +301,27 @@ class MainActivity : ComponentActivity() {
                                         )
                                         Tab.SERVERS -> ServersScreen(
                                             colors = colors,
-                                            servers = servers,
-                                            selectedId = selectedServerId,
-                                            query = searchQuery,
-                                            refreshing = refreshing,
                                             glass = glass,
                                             isDark = isDark,
                                             profiles = profiles,
                                             activeProfileId = activeProfileId,
+                                            selectedId = selectedServerId,
+                                            refreshing = refreshing,
                                             onSwitchProfile = { switchProfile(it) },
-                                            onShareProfile = {
-                                                activeProfile()?.let { p ->
+                                            onShareProfile = { id ->
+                                                profiles.find { it.id == id }?.let { p ->
                                                     shareData = ShareData("اشتراک‌گذاری ${p.name}", shareTextFor(p))
                                                 }
                                             },
+                                            onShareServer = { s ->
+                                                shareData = ShareData("اشتراک‌گذاری کانفیگ", s.link)
+                                            },
+                                            onDeleteServer = { pid, sid -> deleteServer(pid, sid) },
                                             onRefresh = { refreshSubscriptions(scope) },
-                                            onQueryChange = { searchQuery = it },
-                                            onSelect = { id ->
-                                                selectedServerId = id
+                                            onSelect = { pid, sid ->
+                                                if (pid != activeProfileId) switchProfile(pid)
+                                                selectedServerId = sid
                                                 syncActiveProfile()
-                                                scope.launch {
-                                                    toastText = "سرور انتخاب شد"
-                                                    delay(450)
-                                                    currentTab = Tab.HOME
-                                                    delay(1800)
-                                                    if (toastText == "سرور انتخاب شد") toastText = null
-                                                }
                                             },
                                             onTestPings = {
                                                 if (!NetworkUtils.hasInternet(this@MainActivity)) {
@@ -426,6 +430,15 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 }
+                                ConnectBar(
+                                    colors = colors,
+                                    glass = glass,
+                                    isDark = isDark,
+                                    serverName = active?.selectedServer?.name,
+                                    connected = connected,
+                                    connecting = connecting,
+                                    onToggle = { toggleConnect(scope) }
+                                )
                                 BottomNav(colors = colors, current = currentTab, onSelect = { currentTab = it })
                             }
                         }
@@ -551,6 +564,21 @@ class MainActivity : ComponentActivity() {
         }
         persistProfiles()
         if (profiles.isEmpty()) loggedIn = false
+    }
+
+    private fun deleteServer(profileId: Int, serverId: Int) {
+        val p = profiles.find { it.id == profileId } ?: return
+        val remaining = p.servers.filterNot { it.id == serverId }
+        if (remaining.size == p.servers.size) return
+        val newSelected =
+            if (p.selectedServerId == serverId) remaining.firstOrNull()?.id ?: -1
+            else p.selectedServerId
+        replaceProfile(p.copy(servers = remaining, selectedServerId = newSelected))
+        if (activeProfileId == profileId) {
+            servers.clear(); servers.addAll(remaining)
+            selectedServerId = newSelected
+        }
+        persistProfiles()
     }
 
     /**
@@ -760,7 +788,7 @@ class MainActivity : ComponentActivity() {
                 connectVpn(link)
                 // تایم‌اوت ایمنی: هرگز روی «در حال اتصال» گیر نکنیم
                 scope.launch {
-                    delay(30_000)
+                    delay(60_000)
                     if (!VpnStatus.isConnected.value && VpnStatus.isConnecting.value) {
                         VpnStatus.setConnecting(false)
                         toastText = "اتصال برقرار نشد — دوباره تلاش کن"
@@ -1060,90 +1088,274 @@ fun ConnectGauge(
 @Composable
 fun ServersScreen(
     colors: AppColors,
-    servers: List<VpnServer>,
-    selectedId: Int,
-    query: String,
-    refreshing: Boolean,
     glass: Boolean,
     isDark: Boolean,
     profiles: List<ServerProfile>,
     activeProfileId: Int,
+    selectedId: Int,
+    refreshing: Boolean,
     onSwitchProfile: (Int) -> Unit,
-    onShareProfile: () -> Unit,
+    onShareProfile: (Int) -> Unit,
+    onShareServer: (VpnServer) -> Unit,
+    onDeleteServer: (Int, Int) -> Unit,
     onRefresh: () -> Unit,
-    onQueryChange: (String) -> Unit,
-    onSelect: (Int) -> Unit,
+    onSelect: (Int, Int) -> Unit,
     onTestPings: () -> Unit,
     onImport: () -> Unit,
     onScanQr: () -> Unit
 ) {
-    val filtered = servers.filter { it.name.contains(query) || it.protocolLabel.contains(query, true) }
+    val total = profiles.sumOf { it.servers.size }
 
     GlassBackground(isDark = isDark, enabled = glass) {
     Column(Modifier.fillMaxSize().padding(20.dp)) {
-        Text("سرورها", color = colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        if (profiles.size > 1) {
-            Spacer(Modifier.height(12.dp))
-            ProfileChips(colors, profiles, activeProfileId, onSwitchProfile)
+        // نوار بالا به سبک v2rayNG: QR / افزودن / بروزرسانی
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("کانفیگ‌ها", color = colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            IconAction(colors, Icons.Filled.QrCodeScanner, "اسکن QR") { onScanQr() }
+            IconAction(colors, Icons.Filled.Add, "افزودن کانفیگ") { onImport() }
+            IconAction(
+                colors,
+                Icons.Filled.Refresh,
+                "بروزرسانی اشتراک",
+                tint = if (refreshing) colors.amber else colors.textDim
+            ) { if (!refreshing) onRefresh() }
         }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "اشتراک‌گذاری این پروفایل (لینک و QR)",
-            color = colors.amber, fontSize = 11.5.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.clickable { onShareProfile() }.padding(vertical = 2.dp)
-        )
-        Spacer(Modifier.height(8.dp))
-        BasicField(colors, query, onQueryChange, "جستجوی کشور یا سرور")
-        Spacer(Modifier.height(12.dp))
-        PrimaryButton(
-            colors,
-            if (refreshing) "در حال بروزرسانی و تست پینگ…" else "بروزرسانی اشتراک (مرتب‌سازی با کمترین پینگ)",
-            onClick = { if (!refreshing) onRefresh() }
-        )
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            GhostButton(colors, "افزودن از لینک", onClick = onImport, modifier = Modifier.weight(1f))
-            GhostButton(colors, "اسکن QR", onClick = onScanQr, modifier = Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("${filtered.size} سرور", color = colors.textDim, fontSize = 11.5.sp)
-            Text("تست پینگ همه", color = colors.amber, fontSize = 11.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onTestPings() })
+        Spacer(Modifier.height(4.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("$total کانفیگ", color = colors.textDim, fontSize = 11.5.sp)
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (refreshing) "در حال بروزرسانی…" else "تست پینگ همه",
+                color = colors.amber, fontSize = 11.5.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { if (!refreshing) onTestPings() }
+            )
         }
         Spacer(Modifier.height(10.dp))
 
         LazyColumn(Modifier.fillMaxWidth()) {
-            items(filtered) { server ->
-                val isSelected = server.id == selectedId
-                val ping = server.pingMs
-                val pingColor = when {
-                    ping == null -> colors.coral
-                    ping < 100 -> colors.teal
-                    ping < 220 -> colors.amber
-                    else -> colors.coral
+            profiles.forEach { profile ->
+                item(key = "profile-${profile.id}") {
+                    ProfileGroupHeader(
+                        colors = colors,
+                        glass = glass,
+                        isDark = isDark,
+                        profile = profile,
+                        active = profile.id == activeProfileId,
+                        onSwitch = { onSwitchProfile(profile.id) },
+                        onShare = { onShareProfile(profile.id) }
+                    )
                 }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 5.dp)
-                        .panel(colors, glass, isDark, RoundedCornerShape(16.dp), solid = if (isSelected) colors.surface2 else colors.surface)
-                        .then(if (isSelected) Modifier.border(1.dp, colors.amber, RoundedCornerShape(16.dp)) else Modifier)
-                        .clickable { onSelect(server.id) }
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(server.flag, fontSize = 20.sp)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(server.name, color = colors.text, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
-                        Spacer(Modifier.height(3.dp))
-                        Text(server.protocolLabel, color = colors.textDim, fontSize = 10.5.sp)
-                    }
-                    Text(if (ping == null) "—" else "$ping ms", color = pingColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                items(profile.servers, key = { "${profile.id}-${it.id}" }) { server ->
+                    ServerCard(
+                        colors = colors,
+                        glass = glass,
+                        isDark = isDark,
+                        server = server,
+                        selected = profile.id == activeProfileId && server.id == selectedId,
+                        onClick = { onSelect(profile.id, server.id) },
+                        onShare = { onShareServer(server) },
+                        onDelete = { onDeleteServer(profile.id, server.id) }
+                    )
                 }
+                item(key = "gap-${profile.id}") { Spacer(Modifier.height(10.dp)) }
             }
         }
     }
+    }
+}
+
+@Composable
+fun IconAction(
+    colors: AppColors,
+    icon: ImageVector,
+    contentDescription: String,
+    tint: Color = colors.textDim,
+    onClick: () -> Unit
+) {
+    Box(
+        Modifier.size(38.dp).clip(CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+fun ProfileGroupHeader(
+    colors: AppColors,
+    glass: Boolean,
+    isDark: Boolean,
+    profile: ServerProfile,
+    active: Boolean,
+    onSwitch: () -> Unit,
+    onShare: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 4.dp)
+            .panel(colors, glass, isDark, RoundedCornerShape(14.dp), solid = colors.surface2)
+            .clickable { onSwitch() }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.width(4.dp).height(26.dp).clip(RoundedCornerShape(2.dp))
+                .background(if (active) colors.amber else colors.border)
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                profile.name + (if (active) "  ✓" else ""),
+                color = if (active) colors.amber else colors.text,
+                fontSize = 13.5.sp, fontWeight = FontWeight.Bold
+            )
+            Text("${profile.servers.size} سرور", color = colors.textDim, fontSize = 10.5.sp)
+        }
+        IconAction(colors, Icons.Filled.Share, "اشتراک‌گذاری پروفایل", tint = colors.teal) { onShare() }
+    }
+}
+
+@Composable
+fun ServerCard(
+    colors: AppColors,
+    glass: Boolean,
+    isDark: Boolean,
+    server: VpnServer,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val ping = server.pingMs
+    val pingColor = when {
+        ping == null -> colors.coral
+        ping < 120 -> colors.teal
+        ping < 250 -> colors.amber
+        else -> colors.coral
+    }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .panel(colors, glass, isDark, RoundedCornerShape(14.dp), solid = if (selected) colors.surface2 else colors.surface)
+            .then(if (selected) Modifier.border(1.dp, colors.amber, RoundedCornerShape(14.dp)) else Modifier)
+            .clickable { onClick() }
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.width(44.dp).height(48.dp).clip(RoundedCornerShape(10.dp))
+                .background(protocolColor(server.protocolLabel, colors)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                protocolShort(server.protocolLabel),
+                color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                server.name, color = colors.text, fontSize = 13.5.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                hostOf(server), color = colors.textDim, fontSize = 10.5.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(5.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(7.dp)).background(pingColor.copy(alpha = 0.14f))
+                    .padding(horizontal = 7.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    if (ping == null) "Timeout" else "$ping ms",
+                    color = pingColor, fontSize = 9.5.sp, fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        IconAction(colors, Icons.Filled.Share, "اشتراک‌گذاری", tint = colors.teal) { onShare() }
+        IconAction(colors, Icons.Filled.Delete, "حذف", tint = colors.coral) { onDelete() }
+    }
+}
+
+fun protocolColor(label: String, colors: AppColors): Color = when {
+    label.startsWith("VLESS", true) -> colors.teal
+    label.startsWith("VMess", true) -> colors.amber
+    label.startsWith("Trojan", true) -> colors.coral
+    label.startsWith("Shadowsocks", true) || label.startsWith("SS", true) -> Color(0xFF7C6CF0)
+    else -> colors.textDim
+}
+
+fun protocolShort(label: String): String = when {
+    label.startsWith("VLESS", true) -> "VLESS"
+    label.startsWith("VMess", true) -> "VMESS"
+    label.startsWith("Trojan", true) -> "TROJAN"
+    label.startsWith("Shadowsocks", true) || label.startsWith("SS", true) -> "SS"
+    else -> label.take(7).uppercase()
+}
+
+fun hostOf(server: VpnServer): String {
+    val host = XrayConfigBuilder.endpointOf(server.link)?.first
+    return if (host.isNullOrBlank()) server.name else host
+}
+
+@Composable
+fun ConnectBar(
+    colors: AppColors,
+    glass: Boolean,
+    isDark: Boolean,
+    serverName: String?,
+    connected: Boolean,
+    connecting: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .panel(colors, glass, isDark, RoundedCornerShape(18.dp), solid = colors.surface)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                when {
+                    connecting -> "در حال اتصال…"
+                    connected -> "متصل"
+                    else -> "وصل نیست"
+                },
+                color = when {
+                    connecting -> colors.amber
+                    connected -> colors.teal
+                    else -> colors.textDim
+                },
+                fontSize = 12.sp, fontWeight = FontWeight.Bold
+            )
+            Text(
+                serverName ?: "سروری انتخاب نشده",
+                color = colors.text, fontSize = 11.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+        }
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (connected || connecting) colors.coral else colors.amber)
+                .clickable { onToggle() }
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+        ) {
+            Text(
+                if (connected || connecting) "قطع" else "اتصال",
+                color = if (connected || connecting) Color.White else Color(0xFF1A1300),
+                fontSize = 13.sp, fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 
@@ -1223,14 +1435,12 @@ fun SettingsScreen(
                         Spacer(Modifier.height(3.dp))
                         Text("${p.servers.size} سرور", color = colors.textDim, fontSize = 11.sp)
                     }
-                    Text(
-                        "⤴", color = colors.teal, fontSize = 15.sp,
-                        modifier = Modifier.clickable { onShareProfile(p.id) }.padding(6.dp)
-                    )
-                    Text(
-                        "✕", color = colors.coral, fontSize = 15.sp,
-                        modifier = Modifier.clickable { onDeleteProfile(p.id) }.padding(6.dp)
-                    )
+                    IconAction(colors, Icons.Filled.Share, "اشتراک‌گذاری پروفایل", tint = colors.teal) {
+                        onShareProfile(p.id)
+                    }
+                    IconAction(colors, Icons.Filled.Delete, "حذف پروفایل", tint = colors.coral) {
+                        onDeleteProfile(p.id)
+                    }
                 }
             }
         }

@@ -16,10 +16,10 @@ object NetworkUtils {
             val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
             val network = cm.activeNetwork ?: return false
             val caps = cm.getNetworkCapabilities(network) ?: return false
-            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
-            // وقتی VPN فعال است، شبکه‌ی فعال خود VPN است و VALIDATED ممکن است نداشته باشد
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return true
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            // نکته: VALIDATED را چک نمی‌کنیم؛ در ایران به‌خاطر بلاک بودن چک گوگل معمولاً false است
+            // حتی وقتی اینترنت واقعاً کار می‌کند. نبودِ شبکه (دیتا/وای‌فای خاموش) با activeNetwork == null
+            // تشخیص داده می‌شود و درستیِ مسیر با TunnelProbe بعد از اتصال بررسی می‌شود.
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         } catch (e: Exception) {
             false
         }
