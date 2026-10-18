@@ -10,4 +10,8 @@ data class ServerProfile(
     val servers: List<VpnServer>,
     val selectedServerId: Int,
     val subscriptionUrls: List<String>
-)
+) {
+    /** سرور انتخاب‌شده؛ اگر پیدا نشد، اولین سرور. */
+    val selectedServer: VpnServer?
+        get() = servers.find { it.id == selectedServerId } ?: servers.firstOrNull()
+}
