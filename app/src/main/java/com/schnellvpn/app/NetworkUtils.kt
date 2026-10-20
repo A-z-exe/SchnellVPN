@@ -14,12 +14,23 @@ object NetworkUtils {
     fun hasInternet(context: Context): Boolean {
         return try {
             val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
-            val network = cm.activeNetwork ?: return false
-            val caps = cm.getNetworkCapabilities(network) ?: return false
-            // نکته: VALIDATED را چک نمی‌کنیم؛ در ایران به‌خاطر بلاک بودن چک گوگل معمولاً false است
-            // حتی وقتی اینترنت واقعاً کار می‌کند. نبودِ شبکه (دیتا/وای‌فای خاموش) با activeNetwork == null
-            // تشخیص داده می‌شود و درستیِ مسیر با TunnelProbe بعد از اتصال بررسی می‌شود.
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+
+            val active = cm.activeNetwork
+            if (active != null) {
+                val caps = cm.getNetworkCapabilities(active)
+                if (caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                    return true
+                }
+            }
+
+            // اگر شبکه‌ی فعال مشخص نبود، بین همه‌ی شبکه‌ها دنبال اینترنت بگرد
+            cm.allNetworks.any { n ->
+                val c = cm.getNetworkCapabilities(n)
+                c != null && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            }
+        } catch (e: SecurityException) {
+            // اگر مجوز وضعیت شبکه داده نشده بود، کاربر را بلاک نکن؛ TunnelProbe درستی مسیر را چک می‌کند
+            true
         } catch (e: Exception) {
             false
         }

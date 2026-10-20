@@ -11,6 +11,9 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -18,7 +21,13 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -49,7 +58,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -281,7 +292,15 @@ class MainActivity : ComponentActivity() {
                         } else {
                             Column(Modifier.fillMaxSize()) {
                                 Box(Modifier.weight(1f)) {
-                                    when (currentTab) {
+                                    AnimatedContent(
+                                        targetState = currentTab,
+                                        transitionSpec = {
+                                            (fadeIn(tween(220)) + slideInHorizontally { it / 14 }) togetherWith
+                                                (fadeOut(tween(160)) + slideOutHorizontally { -it / 14 })
+                                        },
+                                        label = "tab"
+                                    ) { tab ->
+                                    when (tab) {
                                         Tab.HOME -> HomeScreen(
                                             colors = colors,
                                             servers = servers,
@@ -429,12 +448,15 @@ class MainActivity : ComponentActivity() {
                                             }
                                         )
                                     }
+                                    }
                                 }
                                 ConnectBar(
                                     colors = colors,
                                     glass = glass,
                                     isDark = isDark,
-                                    serverName = active?.selectedServer?.name,
+                                    serverName = servers.find { it.id == selectedServerId }?.name
+                                        ?: active?.selectedServer?.name
+                                        ?: servers.firstOrNull()?.name,
                                     connected = connected,
                                     connecting = connecting,
                                     onToggle = { toggleConnect(scope) }
@@ -774,14 +796,14 @@ class MainActivity : ComponentActivity() {
             stopVpn()
             showToast(scope, "اتصال قطع شد")
         } else {
-            // اگر اینترنت گوشی خاموش باشد، هرگز نباید «وصل» شود
-            if (!NetworkUtils.hasInternet(this)) {
-                showToast(scope, "اینترنت گوشی وصل نیست — اول وای‌فای یا دیتا را روشن کن")
-                return
-            }
             val link = servers.find { it.id == selectedServerId }?.link
+                ?: activeProfile()?.selectedServer?.link
+                ?: servers.firstOrNull()?.link
             if (link == null) {
                 showToast(scope, "اول یک سرور انتخاب کن")
+            } else if (!NetworkUtils.hasInternet(this)) {
+                // اگر اینترنت گوشی خاموش باشد، هرگز نباید «وصل» شود
+                showToast(scope, "اینترنت گوشی وصل نیست — اول وای‌فای یا دیتا را روشن کن")
             } else {
                 connecting = true
                 VpnStatus.setConnecting(true)
@@ -849,33 +871,82 @@ fun LoginScreen(
     onScanQr: () -> Unit
 ) {
     val context = LocalContext.current
+    val appear = remember { Animatable(0f) }
+    val infinite = rememberInfiniteTransition()
+    val pulse by infinite.animateFloat(
+        initialValue = 0.97f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Reverse)
+    )
+    LaunchedEffect(Unit) {
+        appear.animateTo(1f, animationSpec = tween(650, easing = FastOutSlowInEasing))
+    }
+    val p = appear.value
+    val pulseValue = pulse
+
     GlassBackground(isDark = isDark, enabled = glass) {
     Column(
-        Modifier.fillMaxSize().padding(24.dp),
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 22.dp, vertical = 28.dp)
+            .graphicsLayer {
+                alpha = p
+                translationY = (1f - p) * 50f
+            },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        // لوگوی واقعی اپ (به‌جای مربع خالی) با ضربان ملایم
         Box(
-            Modifier.size(74.dp).clip(RoundedCornerShape(22.dp)).background(colors.surface).border(1.dp, colors.border, RoundedCornerShape(22.dp)),
+            Modifier
+                .size(112.dp)
+                .graphicsLayer { scaleX = pulseValue; scaleY = pulseValue }
+                .panel(colors, glass, isDark, RoundedCornerShape(30.dp), solid = colors.surface)
+                .padding(14.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("⚡", fontSize = 30.sp, color = colors.amber)
+            Image(
+                painter = painterResource(R.mipmap.ic_launcher),
+                contentDescription = "SchnellVPN",
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp))
+            )
         }
+
         Spacer(Modifier.height(18.dp))
-        Text("SchnellVPN", color = colors.text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("SchnellVPN", color = colors.text, fontSize = 30.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
-        Text("سریع. امن. بدون پیچیدگی.", color = colors.textDim, fontSize = 13.5.sp)
-        Spacer(Modifier.height(30.dp))
+        Text("سرعت را حس کن، امن بمان.", color = colors.textDim, fontSize = 13.5.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(26.dp))
 
-        BasicField(colors, subLink, onSubLinkChange, "لینک اشتراک یا لینک کانفیگ را وارد کنید")
-        Spacer(Modifier.height(10.dp))
-        PrimaryButton(colors, if (loading) "در حال دریافت سرورها…" else "وارد کردن لینک", onClick = { if (!loading) onImport() })
-        Spacer(Modifier.height(14.dp))
-        Text("یا", color = colors.textDim, fontSize = 11.5.sp)
-        Spacer(Modifier.height(14.dp))
-        GhostButton(colors, "اسکن QR Code", onClick = onScanQr)
+        // کارت شیشه‌ای ورود
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .panel(colors, glass, isDark, RoundedCornerShape(24.dp), solid = colors.surface)
+                .padding(16.dp)
+        ) {
+            Text("شروع", color = colors.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+            BasicField(colors, subLink, onSubLinkChange, "لینک اشتراک یا لینک کانفیگ را وارد کن")
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "هم Subscription و هم لینک مستقیم (vless / vmess / trojan / ss) پشتیبانی می‌شود.",
+                color = colors.textDim, fontSize = 10.5.sp
+            )
+            Spacer(Modifier.height(12.dp))
+            PrimaryButton(colors, if (loading) "در حال دریافت سرورها…" else "وارد کردن لینک", onClick = { if (!loading) onImport() })
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f).height(1.dp).background(colors.border))
+                Text("  یا  ", color = colors.textDim, fontSize = 10.5.sp)
+                Box(Modifier.weight(1f).height(1.dp).background(colors.border))
+            }
+            Spacer(Modifier.height(12.dp))
+            GhostButton(colors, "اسکن QR Code", onClick = onScanQr)
+        }
 
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(18.dp))
         Row {
             Text("کانفیگ نداری؟ ", color = colors.textDim, fontSize = 12.5.sp)
             Text(
@@ -889,6 +960,8 @@ fun LoginScreen(
                 }
             )
         }
+        Spacer(Modifier.height(10.dp))
+        Text("نسخه 1.2.1", color = colors.textDim, fontSize = 10.sp)
     }
     }
 }
@@ -1448,7 +1521,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
         Text("درباره", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        AboutRow(colors, "نسخه برنامه", "1.2.0")
+        AboutRow(colors, "نسخه برنامه", "1.2.1")
         AboutRow(colors, "هسته اتصال", "Xray-core")
         AboutRow(colors, "توسعه‌دهنده", "A-z-exe (Amirhosseinzarei)")
         Row(
