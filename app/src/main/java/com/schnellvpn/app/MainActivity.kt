@@ -59,12 +59,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -276,6 +278,9 @@ class MainActivity : ComponentActivity() {
                 showSplash = false
             }
 
+            val layoutDirection =
+                if (language == AppLanguage.FA) LayoutDirection.Rtl else LayoutDirection.Ltr
+            CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
             MaterialTheme {
                 Surface(color = colors.bg, modifier = Modifier.fillMaxSize()) {
                     Box(Modifier.fillMaxSize()) {
@@ -518,6 +523,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -1869,7 +1875,7 @@ fun LanguageDialog(
         ) {
             Text("زبان / Language", color = colors.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
-            AppLanguage.entries.forEach { lang ->
+            listOf(AppLanguage.FA, AppLanguage.EN, AppLanguage.DE).forEach { lang ->
                 Row(
                     Modifier
                         .fillMaxWidth()
