@@ -283,8 +283,8 @@ fun translateText(text: String, lang: AppLanguage): String {
         return when (lang) {
             AppLanguage.EN -> "$n servers"
             AppLanguage.DE -> "$n Server"
-            AppLanguage.KO -> "$n개 서버"
-            AppLanguage.JA -> "$nサーバー"
+            AppLanguage.KO -> "${n}개 서버"
+            AppLanguage.JA -> "${n}サーバー"
             else -> text
         }
     }
@@ -293,8 +293,8 @@ fun translateText(text: String, lang: AppLanguage): String {
         return when (lang) {
             AppLanguage.EN -> "$n configs"
             AppLanguage.DE -> "$n Konfigurationen"
-            AppLanguage.KO -> "$n개 구성"
-            AppLanguage.JA -> "$n設定"
+            AppLanguage.KO -> "${n}개 구성"
+            AppLanguage.JA -> "${n}設定"
             else -> text
         }
     }
