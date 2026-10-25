@@ -3,9 +3,9 @@
 [![Build](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml/badge.svg)](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml)
 ![Platform](https://img.shields.io/badge/platform-Android-green)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.3.0-blue)
 
-**SchnellVPN** is an Android VPN client built with **Kotlin**, **Jetpack Compose** and **Xray-core**. It supports VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan and Shadowsocks, with multiple subscription profiles, QR import, direct config links, split tunneling, per-app auto-connect and hotspot sharing.
+**SchnellVPN** is an Android VPN client built with **Kotlin**, **Jetpack Compose** and **Xray-core**. It supports VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan and Shadowsocks, with multiple subscription profiles, QR import, direct config links, split tunneling, per-app auto-connect, hotspot sharing, multi-language (فارسی / English / Deutsch) and in-app updates from GitHub.
 
 [⬇️ Download the latest APK](https://github.com/A-z-exe/SchnellVPN/releases/latest) · [🌐 Website](https://a-z-exe.github.io/SchnellVPN/) · [📦 Releases](https://github.com/A-z-exe/SchnellVPN/releases)
 
@@ -18,6 +18,8 @@
 - ✅ تست پینگ واقعی (زمان اتصال TCP به سرور)
 - ✅ **تست عبور واقعی دیتا بعد از اتصال**: تا وقتی یک درخواست واقعی از داخل تونل موفق نشود، وضعیت «متصل» اعلام نمی‌شود؛ در صورت عدم عبور دیتا، اتصال قطع و خطا نمایش داده می‌شود.
 - ✅ **جلوگیری از اتصال بدون اینترنت**: اگر وای‌فای/دیتا خاموش باشد، اتصال و پینگ انجام نمی‌شود و عدد الکی نمایش داده نمی‌شود.
+- ✅ **تست پینگ خارج از VPN**: پینگ همیشه روی شبکه‌ی واقعی (Wi‑Fi/دیتا) انجام می‌شود و وقتی VPN روشن است از داخل تونل رد نمی‌شود.
+- ✅ **پایش مداوم عبور داده**: هر ۲۰ ثانیه تونل تست می‌شود؛ در صورت قطع داده «بدون داده» نمایش داده و اتصال خودکار قطع می‌شود.
 - ✅ نمایش مدت اتصال، حجم مصرفی و سرعت لحظه‌ای
 
 ### پروفایل و سرور
@@ -41,6 +43,8 @@
 - ✅ **کارت پرمصرف‌ترین اپ‌ها در ۲۴ ساعت گذشته** + نمایش لحظه‌ای اپی که دارد مصرف می‌کند
 - ✅ **اعلان غنی**: مدت اتصال، سرعت لحظه‌ای و حجم کل
 - ✅ **آیکن اختصاصی اپ در نوار وضعیت** کنار آیکن اینترنت
+- ✅ **رابط کاربری چندزبانه**: فارسی، English، Deutsch (با تغییر خودکار جهت‌چیدمان RTL/LTR)
+- ✅ **به‌روزرسانی درون‌برنامه از GitHub**: بررسی نسخه، دانلود، بررسی SHA-256 و اجرای نصب‌کننده
 
 > ⚠️ پلاگین‌های Shadowsocks (v2ray-plugin و …) پشتیبانی نمی‌شوند و این لینک‌ها موقع ورود رد می‌شوند.
 
