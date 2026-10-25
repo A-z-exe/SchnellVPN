@@ -23,6 +23,7 @@ object ProfileManager {
     private const val KEY_HOTSPOT_SHARE = "hotspot_share"
     private const val KEY_EXCLUDED_APPS = "excluded_apps"
     private const val KEY_TRIGGER_APPS = "trigger_apps"
+    private const val KEY_LANGUAGE = "language"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -148,6 +149,13 @@ object ProfileManager {
     }
 
     fun loadGlass(context: Context): Boolean = prefs(context).getBoolean(KEY_GLASS, true)
+
+    fun saveLanguage(context: Context, code: String) {
+        prefs(context).edit().putString(KEY_LANGUAGE, code).apply()
+    }
+
+    fun loadLanguage(context: Context): String =
+        prefs(context).getString(KEY_LANGUAGE, "fa") ?: "fa"
 
     fun saveAutoConnect(context: Context, enabled: Boolean) {
         prefs(context).edit()

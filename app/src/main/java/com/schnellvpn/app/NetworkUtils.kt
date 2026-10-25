@@ -2,6 +2,7 @@ package com.schnellvpn.app
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.provider.Settings
 import java.net.Inet4Address
@@ -33,6 +34,28 @@ object NetworkUtils {
             true
         } catch (e: Exception) {
             false
+        }
+    }
+
+    /**
+     * شبکه‌ی واقعیِ زیرین (Wi‑Fi / دیتا) — نه VPN.
+     * برای پینگ استفاده می‌شود تا تست پینگ از داخل تونل VPN رد نشود و عدد فیک ندهد.
+     */
+    fun underlyingNetwork(context: Context): Network? {
+        return try {
+            val cm = context.getSystemService(ConnectivityManager::class.java) ?: return null
+            cm.allNetworks.firstOrNull { n ->
+                val c = cm.getNetworkCapabilities(n) ?: return@firstOrNull false
+                !c.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    (
+                        c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                            c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                            c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                        )
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 

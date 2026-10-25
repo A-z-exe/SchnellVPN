@@ -43,6 +43,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     private var tunPfd: ParcelFileDescriptor? = null
     private var coreController: CoreController? = null
     private var statsJob: Job? = null
+    private var healthJob: Job? = null
 
     private val isConnected = AtomicBoolean(false)
     private val isConnecting = AtomicBoolean(false)
@@ -201,12 +202,14 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 // (پینگ فقط می‌گوید پورت سرور باز است؛ دلیل اصلی «وصل می‌شوم ولی چیزی باز نمی‌شود» همین بود.)
                 withContext(Dispatchers.Main) { updateNotification("⏳ بررسی عبور دیتا…", true) }
                 delay(800) // فرصت کوتاه تا SOCKS محلی Xray بالا بیاید
-                val tunnelOk = TunnelProbe.probe(SOCKS_PORT)
+                val tunnelMs = TunnelProbe.probeWithLatency(SOCKS_PORT)
                 if (disconnectRequested.get()) throw CancellationException("Disconnected during connect")
-                if (!tunnelOk) {
+                if (tunnelMs == null) {
                     throw IllegalStateException("اتصال برقرار شد ولی دیتا رد نمی‌شود — سرور یا کانفیگ را چک کن")
                 }
 
+                VpnStatus.setDataFlowing(true)
+                VpnStatus.setTunnelLatency(tunnelMs.toInt())
                 VpnStatus.setConnecting(false)
                 VpnStatus.setConnected(true)
                 VpnStatus.setConnectStartMillis(System.currentTimeMillis())
@@ -214,6 +217,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 Log.d(TAG, "========== VPN CONNECTED ==========")
 
                 startStatsCollection()
+                startHealthChecks()
 
             } catch (e: CancellationException) {
                 Log.i(TAG, "قطع حین اتصال")
@@ -241,6 +245,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     @Synchronized
     private fun releaseResources() {
         statsJob?.cancel(); statsJob = null
+        healthJob?.cancel(); healthJob = null
         try { HevBridge.stopService() } catch (e: Exception) { Log.w(TAG, "hev stop: ${e.message}") }
         try { coreController?.stopLoop() } catch (e: Exception) { Log.w(TAG, "Xray stop: ${e.message}") }
         coreController = null
@@ -254,6 +259,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             releaseResources()
             isConnected.set(false)
             VpnStatus.setConnecting(false)
+            VpnStatus.setDataFlowing(false)
             VpnStatus.reset()
             withContext(NonCancellable + Dispatchers.Main) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -262,6 +268,34 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             Log.d(TAG, "========== VPN STOPPED ==========")
         } finally {
             isCleaning.set(false)
+        }
+    }
+
+    /**
+     * هر ۲۰ ثانیه یک‌بار واقعاً از داخل تونل درخواست می‌فرستد.
+     * اگر دو بار پشت‌سرهم داده رد نشود، اتصال قطع می‌شود تا کاربر فریب «متصل» را نخورد.
+     */
+    private fun startHealthChecks() {
+        healthJob = serviceScope.launch {
+            var failures = 0
+            while (isActive && isConnected.get()) {
+                delay(20_000)
+                if (!isConnected.get()) break
+                val ms = TunnelProbe.probeWithLatency(SOCKS_PORT)
+                if (ms != null) {
+                    failures = 0
+                    VpnStatus.setDataFlowing(true)
+                    VpnStatus.setTunnelLatency(ms.toInt())
+                } else {
+                    failures++
+                    VpnStatus.setDataFlowing(false)
+                    if (failures >= 2) {
+                        VpnStatus.setLastError("داده‌ای از تونل رد نمی‌شود — اتصال قطع شد")
+                        cleanupResources()
+                        break
+                    }
+                }
+            }
         }
     }
 

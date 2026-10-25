@@ -49,7 +49,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -129,6 +128,8 @@ class MainActivity : ComponentActivity() {
     private var excludedPackages by mutableStateOf<Set<String>>(emptySet())
     private var triggerApps by mutableStateOf<Set<String>>(emptySet())
     private var shareData by mutableStateOf<ShareData?>(null)
+    private var updateState by mutableStateOf<UpdateUiState>(UpdateUiState.Idle)
+    private var language by mutableStateOf(AppLanguage.FA)
     private var showHotspotInfo by mutableStateOf(false)
     private var hotspotIps by mutableStateOf<List<String>>(emptyList())
 
@@ -229,6 +230,8 @@ class MainActivity : ComponentActivity() {
         hotspotShare = ProfileManager.loadHotspotShare(this)
         excludedPackages = ProfileManager.loadExcludedPackages(this)
         triggerApps = ProfileManager.loadTriggerApps(this)
+        language = AppLanguage.fromCode(ProfileManager.loadLanguage(this))
+        Localization.language.value = language
 
         setContent {
             val colors = if (isDark) DarkColors else LightColors
@@ -352,7 +355,10 @@ class MainActivity : ComponentActivity() {
                                                 } else {
                                                     scope.launch {
                                                         showToast(scope, "در حال تست پینگ…")
-                                                        val results = PingTester.pingAll(servers.toList())
+                                                        val results = PingTester.pingAll(
+                                                            servers.toList(),
+                                                            network = NetworkUtils.underlyingNetwork(this@MainActivity)
+                                                        )
                                                         for (i in servers.indices) {
                                                             val s = servers[i]
                                                             servers[i] = s.copy(pingMs = results[s.id])
@@ -429,6 +435,14 @@ class MainActivity : ComponentActivity() {
                                                     shareData = ShareData("اشتراک‌گذاری ${p.name}", shareTextFor(p))
                                                 }
                                             },
+                                            updateState = updateState,
+                                            onUpdateClick = { onUpdateClick(scope) },
+                                            language = language,
+                                            onLanguageChange = { lang ->
+                                                language = lang
+                                                Localization.language.value = lang
+                                                ProfileManager.saveLanguage(this@MainActivity, lang.code)
+                                            },
                                             profiles = profiles,
                                             activeProfileId = activeProfileId,
                                             onSwitchProfile = { switchProfile(it) },
@@ -504,6 +518,47 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // ==================== به‌روزرسانی ====================
+    private fun onUpdateClick(scope: kotlinx.coroutines.CoroutineScope) {
+        when (val st = updateState) {
+            is UpdateUiState.Available -> downloadAndInstallUpdate(scope, st.info)
+            else -> checkForUpdate(scope)
+        }
+    }
+
+    private fun checkForUpdate(scope: kotlinx.coroutines.CoroutineScope) {
+        if (updateState is UpdateUiState.Checking || updateState is UpdateUiState.Downloading) return
+        scope.launch {
+            updateState = UpdateUiState.Checking
+            val info = UpdateManager.checkForUpdate(this@MainActivity)
+            updateState = if (info == null) UpdateUiState.Idle else UpdateUiState.Available(info)
+            if (info == null) showToast(scope, "نسخه‌ی جدیدی موجود نیست")
+        }
+    }
+
+    private fun downloadAndInstallUpdate(
+        scope: kotlinx.coroutines.CoroutineScope,
+        info: UpdateInfo
+    ) {
+        scope.launch {
+            if (!UpdateManager.canInstall(this@MainActivity)) {
+                showToast(scope, "اجازه‌ی نصب اپ‌ها را بده و دوباره تلاش کن")
+                runCatching { startActivity(UpdateManager.unknownSourcesIntent(this@MainActivity)) }
+                return@launch
+            }
+            updateState = UpdateUiState.Downloading(0)
+            val file = UpdateManager.downloadApk(this@MainActivity, info) { p ->
+                updateState = UpdateUiState.Downloading(p)
+            }
+            if (file != null) {
+                updateState = UpdateUiState.Idle
+                UpdateManager.installApk(this@MainActivity, file)
+            } else {
+                updateState = UpdateUiState.Error("دانلود ناموفق بود — دوباره تلاش کن")
             }
         }
     }
@@ -718,7 +773,10 @@ class MainActivity : ComponentActivity() {
                 val selectedLink = servers.find { it.id == selectedServerId }?.link
                 val merged = ServerListOps.mergeRefresh(servers.toList(), fetched)
                 val (numbered, _) = ServerListOps.renumber(merged, selectedLink)
-                val pings = PingTester.pingAll(numbered)
+                val pings = PingTester.pingAll(
+                    numbered,
+                    network = NetworkUtils.underlyingNetwork(this@MainActivity)
+                )
                 val (sorted, newSelected) = ServerListOps.applyPings(numbered, pings, selectedLink)
 
                 servers.clear()
@@ -961,7 +1019,7 @@ fun LoginScreen(
             )
         }
         Spacer(Modifier.height(10.dp))
-        Text("نسخه 1.2.2", color = colors.textDim, fontSize = 10.sp)
+        Text("نسخه 1.3.0", color = colors.textDim, fontSize = 10.sp)
     }
     }
 }
@@ -986,7 +1044,9 @@ fun HomeScreen(
     onOpenSettings: () -> Unit
 ) {
     val server = servers.find { it.id == selectedId }
-    val ping = server?.pingMs ?: 0
+    val dataFlowing = VpnStatus.dataFlowing.value
+    val tunnelLatency = VpnStatus.tunnelLatencyMs.value
+    val ping = if (connected && tunnelLatency > 0) tunnelLatency else (server?.pingMs ?: 0)
 
     GlassBackground(isDark = isDark, enabled = glass) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
@@ -1011,6 +1071,7 @@ fun HomeScreen(
                 connected = connected,
                 connecting = connecting,
                 pingMs = ping,
+                dataFlowing = dataFlowing,
                 glass = glass,
                 isDark = isDark,
                 onClick = onToggleConnect
@@ -1083,6 +1144,7 @@ fun ConnectGauge(
     connected: Boolean,
     connecting: Boolean,
     pingMs: Int,
+    dataFlowing: Boolean,
     glass: Boolean,
     isDark: Boolean,
     onClick: () -> Unit
@@ -1100,9 +1162,10 @@ fun ConnectGauge(
     val angle = if (connecting) sweepAngle else settledAngle
 
     val indicatorColor = when {
+        connected && !dataFlowing -> colors.coral
         !connected -> colors.amber
-        pingMs < 100 -> colors.teal
-        pingMs < 220 -> colors.amber
+        pingMs < 120 -> colors.teal
+        pingMs < 280 -> colors.amber
         else -> colors.coral
     }
 
@@ -1142,16 +1205,33 @@ fun ConnectGauge(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    when { connecting -> "در حال اتصال…"; connected -> "متصل شدید"; else -> "برای اتصال ضربه بزنید" },
+                    when {
+                        connecting -> "در حال اتصال…"
+                        connected && !dataFlowing -> "متصل — بدون داده"
+                        connected -> "متصل شدید"
+                        else -> "برای اتصال ضربه بزنید"
+                    },
                     color = colors.textDim, fontSize = 12.sp, textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    if (connected) (if (pingMs > 0) "$pingMs ms" else "—") else if (connecting) "···" else "—",
+                    when {
+                        connected && dataFlowing && pingMs > 0 -> "$pingMs ms"
+                        connected && !dataFlowing -> "…"
+                        connecting -> "···"
+                        else -> "—"
+                    },
                     color = colors.text, fontSize = 26.sp, fontWeight = FontWeight.Bold
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(if (connected) "آماده" else "آماده‌ی اتصال", color = colors.textDim, fontSize = 10.5.sp)
+                Text(
+                    when {
+                        connected && !dataFlowing -> "بدون داده"
+                        connected -> "آماده"
+                        else -> "آماده‌ی اتصال"
+                    },
+                    color = colors.textDim, fontSize = 10.5.sp
+                )
             }
         }
     }
@@ -1448,6 +1528,10 @@ fun SettingsScreen(
     onToggleHotspotShare: () -> Unit,
     onShowHotspotInfo: () -> Unit,
     onShareProfile: (Int) -> Unit,
+    updateState: UpdateUiState,
+    onUpdateClick: () -> Unit,
+    language: AppLanguage,
+    onLanguageChange: (AppLanguage) -> Unit,
     profiles: List<ServerProfile>,
     activeProfileId: Int,
     onSwitchProfile: (Int) -> Unit,
@@ -1455,12 +1539,40 @@ fun SettingsScreen(
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
+    var showLanguageDialog by remember { mutableStateOf(false) }
     GlassBackground(isDark = isDark, enabled = glass) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         Text("تنظیمات", color = colors.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(18.dp))
 
         SettingRow(colors, "حالت تاریک", "رابط کاربری با نور کم", isDark, onToggleDark)
+        Spacer(Modifier.height(10.dp))
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(colors.surface, RoundedCornerShape(14.dp))
+                .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+                .clickable { showLanguageDialog = true }
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("زبان / Language", color = colors.text, fontSize = 13.5.sp)
+                Text("App language", color = colors.textDim, fontSize = 11.sp)
+            }
+            Text(language.nativeName, color = colors.amber, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+        }
+        if (showLanguageDialog) {
+            LanguageDialog(
+                colors = colors,
+                current = language,
+                onSelect = onLanguageChange,
+                onDismiss = { showLanguageDialog = false }
+            )
+        }
+
         Spacer(Modifier.height(10.dp))
         SettingRow(colors, "تم شیشه‌ای", "ظاهر شیشه‌ای در همه‌ی صفحه‌ها", glass, onToggleGlass)
         Spacer(Modifier.height(10.dp))
@@ -1482,6 +1594,37 @@ fun SettingsScreen(
             color = colors.amber, fontSize = 11.5.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable { onShowHotspotInfo() }.padding(vertical = 6.dp)
         )
+
+        // به‌روزرسانی از GitHub
+        Spacer(Modifier.height(16.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(colors.surface, RoundedCornerShape(14.dp))
+                .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+                .padding(14.dp)
+        ) {
+            Text("به‌روزرسانی برنامه", color = colors.text, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "نسخه فعلی: ${UpdateManager.currentVersion(context)}",
+                color = colors.textDim, fontSize = 11.sp
+            )
+            Spacer(Modifier.height(10.dp))
+            val (label, enabled) = when (val st = updateState) {
+                is UpdateUiState.Checking -> "در حال بررسی…" to false
+                is UpdateUiState.Available -> "دانلود و نصب ${st.info.version}" to true
+                is UpdateUiState.Downloading -> "در حال دانلود… ${st.percent}%" to false
+                is UpdateUiState.Error -> "تلاش دوباره" to true
+                else -> "بررسی به‌روزرسانی" to true
+            }
+            PrimaryButton(colors, label, onClick = { if (enabled) onUpdateClick() })
+            val err = updateState
+            if (err is UpdateUiState.Error) {
+                Spacer(Modifier.height(6.dp))
+                Text(err.message, color = colors.coral, fontSize = 10.5.sp)
+            }
+        }
 
         Spacer(Modifier.height(18.dp))
         Text("پروفایل‌ها", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -1521,7 +1664,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
         Text("درباره", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        AboutRow(colors, "نسخه برنامه", "1.2.2")
+        AboutRow(colors, "نسخه برنامه", "1.3.0")
         AboutRow(colors, "هسته اتصال", "Xray-core")
         AboutRow(colors, "توسعه‌دهنده", "A-z-exe (Amirhosseinzarei)")
         Row(
@@ -1696,6 +1839,55 @@ fun ProfileChips(
                     fontSize = 12.sp,
                     fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
                 )
+            }
+        }
+    }
+}
+
+// ==================== Language Dialog ====================
+@Composable
+fun LanguageDialog(
+    colors: AppColors,
+    current: AppLanguage,
+    onSelect: (AppLanguage) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier
+                .padding(24.dp)
+                .background(colors.surface, RoundedCornerShape(20.dp))
+                .border(1.dp, colors.border, RoundedCornerShape(20.dp))
+                .clickable(onClick = {})
+                .padding(18.dp)
+        ) {
+            Text("زبان / Language", color = colors.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+            AppLanguage.entries.forEach { lang ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(lang); onDismiss() }
+                        .padding(vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        lang.nativeName,
+                        color = if (lang == current) colors.amber else colors.text,
+                        fontSize = 14.sp,
+                        fontWeight = if (lang == current) FontWeight.Bold else FontWeight.Normal
+                    )
+                    if (lang == current) {
+                        Text("✓", color = colors.amber, fontSize = 14.sp)
+                    }
+                }
             }
         }
     }
