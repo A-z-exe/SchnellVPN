@@ -106,6 +106,21 @@ private val TRANSLATIONS: Map<String, List<String>> = mapOf(
     "تم شیشه‌ای" to listOf("Glass theme", "Glas-Design", "글래스 테마", "ガラステーマ"),
     "ظاهر شیشه‌ای در همه‌ی صفحه‌ها" to listOf("Glass look on all screens", "Glas-Optik auf allen Seiten", "모든 화면에 글래스 스타일", "全画面ガラス調"),
     "اتصال خودکار در بوت" to listOf("Auto-connect on boot", "Automatisch beim Start verbinden", "부팅 시 자동 연결", "起動時に自動接続"),
+    "اتصال هوشمند (بهترین سرور)" to listOf(
+        "Smart connect (best server)",
+        "Smart-Verbindung (bester Server)",
+        "스마트 연결 (최적 서버)",
+        "スマート接続（最適サーバー）"
+    ),
+    "تست خودکار، انتخاب سریع‌ترین و سوئیچ در صورت قطعی" to listOf(
+        "Auto-test, pick the fastest, switch on failure",
+        "Automatisch testen, schnellsten wählen, bei Ausfall wechseln",
+        "자동 테스트 후 가장 빠른 서버 선택, 실패 시 전환",
+        "自動テストで最速を選択し、失敗時に切り替え"
+    ),
+    "در حال تست سرورها…" to listOf("Testing servers…", "Server werden getestet…", "서버 테스트 중…", "サーバーをテスト中…"),
+    "هیچ سروری پاسخ نداد" to listOf("No server responded", "Kein Server hat geantwortet", "응답한 서버가 없습니다", "応答したサーバーがありません"),
+    "سروری موجود نیست" to listOf("No servers available", "Keine Server verfügbar", "사용 가능한 서버가 없습니다", "利用可能なサーバーがありません"),
     "بعد از روشن شدن گوشی خودکار وصل شود" to listOf(
         "Connect automatically after boot",
         "Nach dem Start automatisch verbinden",
@@ -263,7 +278,7 @@ private val TRANSLATIONS: Map<String, List<String>> = mapOf(
         "유효한 링크를 입력하세요",
         "有効なリンクを入力してください"
     ),
-    "نسخه 1.3.0" to listOf("Version 1.3.0", "Version 1.3.0", "버전 1.3.0", "バージョン 1.3.0")
+    "نسخه 1.4.0" to listOf("Version 1.4.0", "Version 1.4.0", "버전 1.4.0", "バージョン 1.4.0")
 )
 
 fun translateText(text: String, lang: AppLanguage): String {
@@ -355,6 +370,16 @@ fun translateText(text: String, lang: AppLanguage): String {
             AppLanguage.DE -> "Wird heruntergeladen… $p%"
             AppLanguage.KO -> "다운로드 중… $p%"
             AppLanguage.JA -> "ダウンロード中… $p%"
+            else -> text
+        }
+    }
+    Regex("^بهترین سرور: (.+)$").find(text)?.let { m ->
+        val n = m.groupValues[1]
+        return when (lang) {
+            AppLanguage.EN -> "Best server: $n"
+            AppLanguage.DE -> "Bester Server: $n"
+            AppLanguage.KO -> "최고 서버: $n"
+            AppLanguage.JA -> "最適サーバー: $n"
             else -> text
         }
     }

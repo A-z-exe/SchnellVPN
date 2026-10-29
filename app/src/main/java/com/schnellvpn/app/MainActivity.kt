@@ -132,6 +132,7 @@ class MainActivity : ComponentActivity() {
     private var shareData by mutableStateOf<ShareData?>(null)
     private var updateState by mutableStateOf<UpdateUiState>(UpdateUiState.Idle)
     private var language by mutableStateOf(AppLanguage.FA)
+    private var smartConnect by mutableStateOf(false)
     private var showHotspotInfo by mutableStateOf(false)
     private var hotspotIps by mutableStateOf<List<String>>(emptyList())
 
@@ -234,6 +235,7 @@ class MainActivity : ComponentActivity() {
         triggerApps = ProfileManager.loadTriggerApps(this)
         language = AppLanguage.fromCode(ProfileManager.loadLanguage(this))
         Localization.language.value = language
+        smartConnect = ProfileManager.loadSmartConnect(this)
 
         setContent {
             val colors = if (isDark) DarkColors else LightColors
@@ -255,6 +257,25 @@ class MainActivity : ComponentActivity() {
                         connecting = false
                         toastText = "خطا: $err"
                         VpnStatus.setLastError(null)
+                    }
+
+                    // همگام‌سازی انتخاب سرور با سوئیچ خودکار + پینگ واقعی تونل
+                    if (connected) {
+                        VpnStatus.currentServerLink.value?.let { link ->
+                            val idx = servers.indexOfFirst { it.link == link }
+                            if (idx >= 0 && servers[idx].id != selectedServerId) {
+                                selectedServerId = servers[idx].id
+                                syncActiveProfile()
+                            }
+                        }
+                        val liveLatency = VpnStatus.tunnelLatencyMs.value
+                        if (liveLatency > 0) {
+                            val idx = servers.indexOfFirst { it.id == selectedServerId }
+                            if (idx >= 0 && servers[idx].pingMs != liveLatency) {
+                                servers[idx] = servers[idx].copy(pingMs = liveLatency)
+                                syncActiveProfile()
+                            }
+                        }
                     }
                     delay(500)
                 }
@@ -416,6 +437,11 @@ class MainActivity : ComponentActivity() {
                                             onToggleAutoConnect = {
                                                 autoConnect = !autoConnect
                                                 ProfileManager.saveAutoConnect(this@MainActivity, autoConnect)
+                                            },
+                                            smartConnect = smartConnect,
+                                            onToggleSmartConnect = {
+                                                smartConnect = !smartConnect
+                                                ProfileManager.saveSmartConnect(this@MainActivity, smartConnect)
                                             },
                                             disconnectOnLock = disconnectOnLock,
                                             onToggleDisconnectOnLock = {
@@ -860,6 +886,10 @@ class MainActivity : ComponentActivity() {
             stopVpn()
             showToast(scope, "اتصال قطع شد")
         } else {
+            if (smartConnect) {
+                smartConnectAndConnect(scope)
+                return
+            }
             val link = servers.find { it.id == selectedServerId }?.link
                 ?: activeProfile()?.selectedServer?.link
                 ?: servers.firstOrNull()?.link
@@ -872,16 +902,58 @@ class MainActivity : ComponentActivity() {
                 connecting = true
                 VpnStatus.setConnecting(true)
                 connectVpn(link)
-                // تایم‌اوت ایمنی: هرگز روی «در حال اتصال» گیر نکنیم
-                scope.launch {
-                    delay(60_000)
-                    if (!VpnStatus.isConnected.value && VpnStatus.isConnecting.value) {
-                        VpnStatus.setConnecting(false)
-                        toastText = "اتصال برقرار نشد — دوباره تلاش کن"
-                        delay(2500)
-                        if (toastText == "اتصال برقرار نشد — دوباره تلاش کن") toastText = null
-                    }
-                }
+                armConnectTimeout(scope)
+            }
+        }
+    }
+
+    private fun armConnectTimeout(scope: kotlinx.coroutines.CoroutineScope) {
+        scope.launch {
+            delay(60_000)
+            if (!VpnStatus.isConnected.value && VpnStatus.isConnecting.value) {
+                VpnStatus.setConnecting(false)
+                toastText = "اتصال برقرار نشد — دوباره تلاش کن"
+                delay(2500)
+                if (toastText == "اتصال برقرار نشد — دوباره تلاش کن") toastText = null
+            }
+        }
+    }
+
+    /** تست همه‌ی سرورها، انتخاب بهترین و اتصال. اگر سرور جواب نداد، سرویس خودش سوئیچ می‌کند. */
+    private fun smartConnectAndConnect(scope: kotlinx.coroutines.CoroutineScope) {
+        if (servers.isEmpty()) {
+            showToast(scope, "سروری موجود نیست")
+            return
+        }
+        if (!NetworkUtils.hasInternet(this)) {
+            showToast(scope, "اینترنت گوشی وصل نیست — اول وای‌فای یا دیتا را روشن کن")
+            return
+        }
+        scope.launch {
+            connecting = true
+            VpnStatus.setConnecting(true)
+            showToast(scope, "در حال تست سرورها…")
+            val results = PingTester.pingAll(
+                servers.toList(),
+                network = NetworkUtils.underlyingNetwork(this@MainActivity)
+            )
+            for (i in servers.indices) {
+                servers[i] = servers[i].copy(pingMs = results[servers[i].id])
+            }
+            syncActiveProfile()
+            val best = servers
+                .filter { results[it.id] != null }
+                .minByOrNull { results[it.id] ?: Int.MAX_VALUE }
+            if (best == null) {
+                connecting = false
+                VpnStatus.setConnecting(false)
+                showToast(scope, "هیچ سروری پاسخ نداد")
+            } else {
+                selectedServerId = best.id
+                syncActiveProfile()
+                showToast(scope, "بهترین سرور: ${best.name}")
+                connectVpn(best.link)
+                armConnectTimeout(scope)
             }
         }
     }
@@ -1025,7 +1097,7 @@ fun LoginScreen(
             )
         }
         Spacer(Modifier.height(10.dp))
-        Text("نسخه 1.3.0", color = colors.textDim, fontSize = 10.sp)
+        Text("نسخه 1.4.0", color = colors.textDim, fontSize = 10.sp)
     }
     }
 }
@@ -1264,6 +1336,8 @@ fun ServersScreen(
     onScanQr: () -> Unit
 ) {
     val total = profiles.sumOf { it.servers.size }
+    val liveConnected = VpnStatus.isConnected.value
+    val liveLatency = VpnStatus.tunnelLatencyMs.value
 
     GlassBackground(isDark = isDark, enabled = glass) {
     Column(Modifier.fillMaxSize().padding(20.dp)) {
@@ -1312,6 +1386,7 @@ fun ServersScreen(
                         isDark = isDark,
                         server = server,
                         selected = profile.id == activeProfileId && server.id == selectedId,
+                        liveLatencyMs = if (liveConnected && profile.id == activeProfileId && server.id == selectedId) liveLatency else 0,
                         onClick = { onSelect(profile.id, server.id) },
                         onShare = { onShareServer(server) },
                         onDelete = { onDeleteServer(profile.id, server.id) }
@@ -1383,11 +1458,12 @@ fun ServerCard(
     isDark: Boolean,
     server: VpnServer,
     selected: Boolean,
+    liveLatencyMs: Int = 0,
     onClick: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val ping = server.pingMs
+    val ping = if (liveLatencyMs > 0) liveLatencyMs else server.pingMs
     val pingColor = when {
         ping == null -> colors.coral
         ping < 120 -> colors.teal
@@ -1528,6 +1604,8 @@ fun SettingsScreen(
     onToggleGlass: () -> Unit,
     autoConnect: Boolean,
     onToggleAutoConnect: () -> Unit,
+    smartConnect: Boolean,
+    onToggleSmartConnect: () -> Unit,
     disconnectOnLock: Boolean,
     onToggleDisconnectOnLock: () -> Unit,
     hotspotShare: Boolean,
@@ -1583,6 +1661,14 @@ fun SettingsScreen(
         SettingRow(colors, "تم شیشه‌ای", "ظاهر شیشه‌ای در همه‌ی صفحه‌ها", glass, onToggleGlass)
         Spacer(Modifier.height(10.dp))
         SettingRow(colors, "اتصال خودکار در بوت", "بعد از روشن شدن گوشی خودکار وصل شود", autoConnect, onToggleAutoConnect)
+        Spacer(Modifier.height(10.dp))
+        SettingRow(
+            colors,
+            "اتصال هوشمند (بهترین سرور)",
+            "تست خودکار، انتخاب سریع‌ترین و سوئیچ در صورت قطعی",
+            smartConnect,
+            onToggleSmartConnect
+        )
         Spacer(Modifier.height(10.dp))
         SettingRow(colors, "قطع اتصال هنگام قفل صفحه", "با خاموش شدن صفحه، VPN قطع شود", disconnectOnLock, onToggleDisconnectOnLock)
         Spacer(Modifier.height(10.dp))
@@ -1670,7 +1756,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
         Text("درباره", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        AboutRow(colors, "نسخه برنامه", "1.3.0")
+        AboutRow(colors, "نسخه برنامه", "1.4.0")
         AboutRow(colors, "هسته اتصال", "Xray-core")
         AboutRow(colors, "توسعه‌دهنده", "A-z-exe (Amirhosseinzarei)")
         Row(

@@ -21,6 +21,8 @@ object VpnStatus {
     val dataFlowing = mutableStateOf(false)
     /** تأخیر واقعی اندازه‌گیری‌شده از داخل تونل (ms) */
     val tunnelLatencyMs = mutableStateOf(0)
+    /** لینک سروری که همین حالا استفاده می‌شود (برای همگام‌سازی UI با سوئیچ خودکار) */
+    val currentServerLink = mutableStateOf<String?>(null)
 
     /** Resets counters/state. Deliberately keeps lastError so the UI can still show why we stopped. */
     fun reset() {
@@ -32,6 +34,7 @@ object VpnStatus {
             connectStartMillis.value = 0L
             dataFlowing.value = false
             tunnelLatencyMs.value = 0
+            currentServerLink.value = null
         }
     }
 
@@ -52,6 +55,7 @@ object VpnStatus {
     fun setConnectStartMillis(ts: Long) = postToMain { connectStartMillis.value = ts }
     fun setDataFlowing(flowing: Boolean) = postToMain { dataFlowing.value = flowing }
     fun setTunnelLatency(ms: Int) = postToMain { tunnelLatencyMs.value = ms }
+    fun setCurrentServerLink(link: String?) = postToMain { currentServerLink.value = link }
 
     private fun postToMain(action: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) action() else mainHandler.post { action() }

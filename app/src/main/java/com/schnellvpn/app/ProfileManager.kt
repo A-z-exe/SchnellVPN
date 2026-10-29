@@ -24,6 +24,7 @@ object ProfileManager {
     private const val KEY_EXCLUDED_APPS = "excluded_apps"
     private const val KEY_TRIGGER_APPS = "trigger_apps"
     private const val KEY_LANGUAGE = "language"
+    private const val KEY_SMART_CONNECT = "smart_connect"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -156,6 +157,14 @@ object ProfileManager {
 
     fun loadLanguage(context: Context): String =
         prefs(context).getString(KEY_LANGUAGE, "fa") ?: "fa"
+
+    /** اتصال هوشمند: تست سرورها، انتخاب بهترین و سوئیچ خودکار در صورت قطعی. */
+    fun saveSmartConnect(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_SMART_CONNECT, enabled).apply()
+    }
+
+    fun loadSmartConnect(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SMART_CONNECT, false)
 
     fun saveAutoConnect(context: Context, enabled: Boolean) {
         prefs(context).edit()

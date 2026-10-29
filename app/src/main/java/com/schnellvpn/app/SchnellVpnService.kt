@@ -44,6 +44,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     private var coreController: CoreController? = null
     private var statsJob: Job? = null
     private var healthJob: Job? = null
+    private var currentLink: String? = null
 
     private val isConnected = AtomicBoolean(false)
     private val isConnecting = AtomicBoolean(false)
@@ -127,6 +128,8 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             return
         }
         disconnectRequested.set(false)
+        currentLink = link
+        VpnStatus.setCurrentServerLink(link)
         VpnStatus.setConnecting(true)
         VpnStatus.setLastError(null)
 
@@ -260,6 +263,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             isConnected.set(false)
             VpnStatus.setConnecting(false)
             VpnStatus.setDataFlowing(false)
+            VpnStatus.setCurrentServerLink(null)
             VpnStatus.reset()
             withContext(NonCancellable + Dispatchers.Main) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -290,6 +294,9 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     failures++
                     VpnStatus.setDataFlowing(false)
                     if (failures >= 2) {
+                        if (ProfileManager.loadSmartConnect(this@SchnellVpnService) && tryFailover()) {
+                            break
+                        }
                         VpnStatus.setLastError("داده‌ای از تونل رد نمی‌شود — اتصال قطع شد")
                         cleanupResources()
                         break
@@ -297,6 +304,40 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 }
             }
         }
+    }
+
+    /**
+     * در حالت «اتصال هوشمند»، وقتی سرور فعلی جواب نمی‌دهد به سرور بعدی (کم‌ترین پینگ) سوئیچ می‌کند.
+     * انتخاب پروفایل در ProfileStore ذخیره می‌شود تا UI هم همگام شود.
+     */
+    private fun tryFailover(): Boolean {
+        val oldLink = currentLink ?: return false
+        val profiles = ProfileStore.load(this)
+        val activeId = ProfileStore.loadActiveId(this)
+        val profile = profiles.find { it.id == activeId } ?: return false
+        val next = profile.servers
+            .filter { it.link.isNotBlank() && it.link != oldLink }
+            .sortedBy { it.pingMs ?: Int.MAX_VALUE }
+            .firstOrNull() ?: return false
+
+        Log.d(TAG, "Failover → ${next.name}")
+        ProfileStore.save(
+            this,
+            profiles.map { if (it.id == activeId) it.copy(selectedServerId = next.id) else it }
+        )
+
+        releaseResources()
+        isConnected.set(false)
+        isConnecting.set(false)
+        VpnStatus.setConnected(false)
+        VpnStatus.setDataFlowing(false)
+        VpnStatus.setTunnelLatency(0)
+        VpnStatus.setConnecting(true)
+        VpnStatus.setCurrentServerLink(next.link)
+        currentLink = next.link
+        updateNotification("⏳ سوئیچ به ${next.name}…", true)
+        startVpn(next.link)
+        return true
     }
 
     private fun startStatsCollection() {
