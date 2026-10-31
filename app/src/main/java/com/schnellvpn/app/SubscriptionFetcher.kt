@@ -80,7 +80,6 @@ object SubscriptionFetcher {
         for (line in text.lines()) {
             val link = line.trim()
             if (link.isEmpty() || !startsWithKnownScheme(link)) continue
-            if (!seen.add(link)) continue
 
             val outbound = try {
                 XrayConfigBuilder.parseOutbound(link)
@@ -91,6 +90,10 @@ object SubscriptionFetcher {
             val name = remarkOf(link).ifEmpty {
                 XrayConfigBuilder.endpointOf(link)?.first ?: "Server ${servers.size + 1}"
             }
+            // کانفیگ‌های لوکال (127.0.0.1) ممکن است لینک یکسان و نام متفاوت داشته باشند؛
+            // کاربر انتظار دارد همه‌شان جدا نمایش داده شوند.
+            val key = if (ServerListOps.isLocalLink(link)) "$link|$name" else link
+            if (!seen.add(key)) continue
             servers.add(VpnServer(servers.size + 1, "🌐", name, labelOf(outbound), link, null))
         }
         return servers

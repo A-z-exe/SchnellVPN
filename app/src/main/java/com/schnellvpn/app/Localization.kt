@@ -120,6 +120,7 @@ private val TRANSLATIONS: Map<String, List<String>> = mapOf(
     ),
     "در حال تست سرورها…" to listOf("Testing servers…", "Server werden getestet…", "서버 테스트 중…", "サーバーをテスト中…"),
     "در حال پینگ…" to listOf("Pinging…", "Ping läuft…", "핑 중…", "Ping 中…"),
+    "در حال تست تأخیر واقعی کانفیگ‌ها…" to listOf("Measuring real config delay…", "Echte Konfig-Verzögerung wird gemessen…", "실제 구성 지연 측정 중…", "実際の構成遅延を測定中…"),
     "سرور پاسخ نداد" to listOf("Server did not respond", "Server hat nicht geantwortet", "서버가 응답하지 않음", "サーバーが応答しません"),
     "Local — بالاست" to listOf("Local — up", "Lokal — erreichbar", "로컬 — 정상", "ローカル — 稼働中"),
     "هیچ سروری پاسخ نداد" to listOf("No server responded", "Kein Server hat geantwortet", "응답한 서버가 없습니다", "応答したサーバーがありません"),
@@ -282,7 +283,7 @@ private val TRANSLATIONS: Map<String, List<String>> = mapOf(
         "유효한 링크를 입력하세요",
         "有効なリンクを入力してください"
     ),
-    "نسخه 1.4.1" to listOf("Version 1.4.1", "Version 1.4.1", "버전 1.4.1", "バージョン 1.4.1")
+    "نسخه 1.4.2" to listOf("Version 1.4.2", "Version 1.4.2", "버전 1.4.2", "バージョン 1.4.2")
 )
 
 fun translateText(text: String, lang: AppLanguage): String {

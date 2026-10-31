@@ -89,14 +89,14 @@ data class AppColors(
 )
 
 val DarkColors = AppColors(
-    bg = Color(0xFF0D1526), surface = Color(0xFF16213A), surface2 = Color(0xFF1C2942),
-    border = Color(0xFF2B3A5C), text = Color(0xFFEDF1F7), textDim = Color(0xFF8C9AB8),
-    amber = Color(0xFFF5A623), teal = Color(0xFF38C9B9), coral = Color(0xFFFF6B5E)
+    bg = Color(0xFF0A1226), surface = Color(0xFF12203A), surface2 = Color(0xFF172A47),
+    border = Color(0xFF24405F), text = Color(0xFFEDF4F8), textDim = Color(0xFF93A6BF),
+    amber = Color(0xFFF5A623), teal = Color(0xFF22D3BE), coral = Color(0xFFFF6B5E)
 )
 val LightColors = AppColors(
-    bg = Color(0xFFF4F6FB), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFECEFF6),
-    border = Color(0xFFD8DEEB), text = Color(0xFF131A2B), textDim = Color(0xFF5B6781),
-    amber = Color(0xFFD9870A), teal = Color(0xFF1F9E8F), coral = Color(0xFFE0473A)
+    bg = Color(0xFFF3F7F9), surface = Color(0xFFFFFFFF), surface2 = Color(0xFFE8F1F3),
+    border = Color(0xFFCFE0E4), text = Color(0xFF0D1B2A), textDim = Color(0xFF55707A),
+    amber = Color(0xFFD9870A), teal = Color(0xFF14A393), coral = Color(0xFFE0473A)
 )
 
 enum class Tab { HOME, SERVERS, APPS, SETTINGS }
@@ -387,11 +387,8 @@ class MainActivity : ComponentActivity() {
                                                     showToast(scope, "اینترنت گوشی وصل نیست — پینگ امکان‌پذیر نیست")
                                                 } else {
                                                     scope.launch {
-                                                        showToast(scope, "در حال تست پینگ…")
-                                                        val results = PingTester.pingAll(
-                                                            servers.toList(),
-                                                            network = NetworkUtils.underlyingNetwork(this@MainActivity)
-                                                        )
+                                                        showToast(scope, "در حال تست تأخیر واقعی کانفیگ‌ها…")
+                                                        val results = measurePings(servers.toList())
                                                         val selectedLink = servers.find { it.id == selectedServerId }?.link
                                                         val (sorted, newSelected) = ServerListOps.applyPings(
                                                             servers.toList(), results, selectedLink
@@ -816,10 +813,7 @@ class MainActivity : ComponentActivity() {
                 val selectedLink = servers.find { it.id == selectedServerId }?.link
                 val merged = ServerListOps.mergeRefresh(servers.toList(), fetched)
                 val (numbered, _) = ServerListOps.renumber(merged, selectedLink)
-                val pings = PingTester.pingAll(
-                    numbered,
-                    network = NetworkUtils.underlyingNetwork(this@MainActivity)
-                )
+                val pings = measurePings(numbered)
                 val (sorted, newSelected) = ServerListOps.applyPings(numbered, pings, selectedLink)
 
                 servers.clear()
@@ -946,6 +940,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** تأخیر واقعی کانفیگ‌ها (Real Delay)؛ اگر هسته‌ی موقت بالا نیامد، پینگ ساده‌تر. */
+    private suspend fun measurePings(list: List<VpnServer>): Map<Int, Int?> {
+        val real = RealDelayTester.measure(this, list)
+        if (real != null) return real
+        return PingTester.pingAll(list, network = NetworkUtils.underlyingNetwork(this))
+    }
+
     /** پینگ مجدد سرور انتخاب‌شده از دکمه‌ی نوار پایین. */
     private fun pingSelected(scope: kotlinx.coroutines.CoroutineScope) {
         val server = servers.find { it.id == selectedServerId }
@@ -955,10 +956,20 @@ class MainActivity : ComponentActivity() {
         }
         scope.launch {
             showToast(scope, "در حال پینگ…")
-            val ping = PingTester.pingLink(
-                server.link,
-                NetworkUtils.underlyingNetwork(this@MainActivity)
-            )
+            val connectedNow = VpnStatus.isConnected.value
+            val isCurrent = connectedNow && VpnStatus.currentServerLink.value == server.link
+            var ping: Int? = null
+            if (isCurrent) {
+                // همان عددی که در صفحه‌ی خانه دیده می‌شود، از داخل تونل واقعی
+                ping = try {
+                    TunnelProbe.probeWithLatency(10808, timeoutMs = 4000)
+                        ?.toInt()?.takeIf { it in 1..4000 }
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            if (ping == null) ping = measurePings(listOf(server))[server.id]
+
             val idx = servers.indexOfFirst { it.id == server.id }
             if (idx >= 0) {
                 servers[idx] = servers[idx].copy(pingMs = ping)
@@ -989,10 +1000,7 @@ class MainActivity : ComponentActivity() {
                 VpnStatus.setConnecting(true)
             }
             showToast(scope, "در حال تست سرورها…")
-            val results = PingTester.pingAll(
-                servers.toList(),
-                network = NetworkUtils.underlyingNetwork(this@MainActivity)
-            )
+            val results = measurePings(servers.toList())
             val selectedLink = servers.find { it.id == selectedServerId }?.link
             val (sorted, newSelected) = ServerListOps.applyPings(
                 servers.toList(), results, selectedLink
@@ -1157,7 +1165,7 @@ fun LoginScreen(
             )
         }
         Spacer(Modifier.height(10.dp))
-        Text("نسخه 1.4.1", color = colors.textDim, fontSize = 10.sp)
+        Text("نسخه 1.4.2", color = colors.textDim, fontSize = 10.sp)
     }
     }
 }
@@ -1831,7 +1839,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
         Text("درباره", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        AboutRow(colors, "نسخه برنامه", "1.4.1")
+        AboutRow(colors, "نسخه برنامه", "1.4.2")
         AboutRow(colors, "هسته اتصال", "Xray-core")
         AboutRow(colors, "توسعه‌دهنده", "A-z-exe (Amirhosseinzarei)")
         Row(

@@ -78,6 +78,75 @@ object XrayConfigBuilder {
         return root.toString(2)
     }
 
+    /**
+     * کانفیگ مخصوص تست «تأخیر واقعی» (Real Delay):
+     * برای هر لینک یک inbound SOCKS روی 127.0.0.1:[basePort+i] و یک outbound جدا ساخته می‌شود.
+     * نتیجه: [json, ports] که ports[i] پورت همان لینک است (null = لوکال/نامعتبر و تست لازم ندارد).
+     */
+    fun buildDelayProbeConfig(links: List<String>, basePort: Int): Pair<String, List<Int?>> {
+        val inbounds = JSONArray()
+        val outbounds = JSONArray()
+        val rules = JSONArray()
+        val ports = ArrayList<Int?>(links.size)
+        var port = basePort
+
+        links.forEachIndexed { i, link ->
+            val host = try { endpointOf(link)?.first } catch (e: Exception) { null }
+            val outbound = if (host == null || isLocalH(host)) null else
+                try { parseOutbound(link) } catch (e: Exception) { null }
+
+            if (outbound == null) {
+                ports.add(null)
+                return@forEachIndexed
+            }
+
+            val inTag = "delay_in_$i"
+            val outTag = "delay_out_$i"
+            outbound.put("tag", outTag)
+
+            inbounds.put(JSONObject().apply {
+                put("tag", inTag)
+                put("listen", "127.0.0.1")
+                put("port", port)
+                put("protocol", "socks")
+                put("settings", JSONObject().apply {
+                    put("auth", "noauth")
+                    put("udp", false)
+                })
+            })
+            outbounds.put(outbound)
+            rules.put(JSONObject().apply {
+                put("type", "field")
+                put("inboundTag", JSONArray().put(inTag))
+                put("outboundTag", outTag)
+            })
+            ports.add(port)
+            port++
+        }
+
+        outbounds.put(JSONObject().apply {
+            put("protocol", "freedom"); put("tag", "DIRECT")
+            put("settings", JSONObject().put("domainStrategy", "UseIPv4"))
+        })
+        outbounds.put(JSONObject().apply { put("protocol", "blackhole"); put("tag", "BLOCK") })
+
+        val root = JSONObject().apply {
+            put("log", JSONObject().put("loglevel", "warning"))
+            put("inbounds", inbounds)
+            put("outbounds", outbounds)
+            put("dns", JSONObject().put("servers", JSONArray().put("1.1.1.1").put("8.8.8.8")))
+            put("routing", JSONObject().apply {
+                put("domainStrategy", "AsIs")
+                put("rules", rules)
+            })
+        }
+        return root.toString() to ports
+    }
+
+    private fun isLocalH(host: String): Boolean =
+        host == "127.0.0.1" || host.equals("localhost", ignoreCase = true) ||
+            host == "::1" || host == "0.0.0.0"
+
     /** نوع امنیت لایه‌ی انتقال: tls / reality / none */
     fun securityOf(link: String): String {
         return try {

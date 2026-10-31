@@ -244,6 +244,32 @@ class XrayConfigBuilderTest {
     }
 
     @Test
+    fun delayProbeConfigHasOneInboundPerRemoteAndSkipsLocal() {
+        val links = listOf(
+            "vless://$uuid@example.com:8443?security=none#a",
+            "vless://$uuid@127.0.0.1:1080?security=none#local",
+            "vless://$uuid@second.example.com:443?security=none#b"
+        )
+        val (json, ports) = XrayConfigBuilder.buildDelayProbeConfig(links, 22000)
+        val cfg = JSONObject(json)
+
+        assertEquals(listOf(22000, null, 22001), ports)
+        assertEquals(2, cfg.getJSONArray("inbounds").length())
+        assertEquals(22000, cfg.getJSONArray("inbounds").getJSONObject(0).getInt("port"))
+        assertEquals("delay_in_0", cfg.getJSONArray("inbounds").getJSONObject(0).getString("tag"))
+        assertEquals(22001, cfg.getJSONArray("inbounds").getJSONObject(1).getInt("port"))
+
+        val outbounds = cfg.getJSONArray("outbounds")
+        assertEquals("delay_out_0", outbounds.getJSONObject(0).getString("tag"))
+        assertEquals("delay_out_2", outbounds.getJSONObject(1).getString("tag"))
+        assertEquals("freedom", outbounds.getJSONObject(2).getString("protocol"))
+
+        val rules = cfg.getJSONObject("routing").getJSONArray("rules")
+        assertEquals(2, rules.length())
+        assertEquals("delay_out_0", rules.getJSONObject(0).getString("outboundTag"))
+    }
+
+    @Test
     fun endpointOfReturnsHostAndPort() {
         assertEquals(
             "example.com" to 8443,

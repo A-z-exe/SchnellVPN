@@ -3,7 +3,7 @@
 [![Build](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml/badge.svg)](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml)
 ![Platform](https://img.shields.io/badge/platform-Android-green)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
-![Version](https://img.shields.io/badge/version-1.4.1-blue)
+![Version](https://img.shields.io/badge/version-1.4.2-blue)
 
 **SchnellVPN** is an Android VPN client built with **Kotlin**, **Jetpack Compose** and **Xray-core**. It supports VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan and Shadowsocks, with multiple subscription profiles, QR import, direct config links, split tunneling, per-app auto-connect, hotspot sharing, multi-language (فارسی / English / Deutsch) and in-app updates from GitHub.
 
@@ -15,7 +15,8 @@
 
 ### اتصال و پروتکل
 - ✅ پشتیبانی از VLESS (TCP / WS / gRPC / HTTPUpgrade / XHTTP همراه TLS و Reality)، VMess، Trojan و Shadowsocks
-- ✅ تست پینگ واقعی (TLS/Reality handshake با SNI؛ برای کانفیگ‌های بدون TLS، اتصال TCP) و نمایش Timeout برای پینگ بالای ۴۰۰۰ms
+- ✅ **تأخیر واقعی کانفیگ (Real Delay)** مثل v2rayNG/Hiddify: یک هسته‌ی موقت Xray برای هر کانفیگ و عبور یک درخواست HTTP واقعی؛ نمایش Timeout برای بالای ۴۰۰۰ms
+- ✅ پینگ مجدد سرور انتخاب‌شده از نوار پایین (در حالت متصل، از داخل تونل واقعی)
 - ✅ **تست عبور واقعی دیتا بعد از اتصال**: تا وقتی یک درخواست واقعی از داخل تونل موفق نشود، وضعیت «متصل» اعلام نمی‌شود؛ در صورت عدم عبور دیتا، اتصال قطع و خطا نمایش داده می‌شود.
 - ✅ **جلوگیری از اتصال بدون اینترنت**: اگر وای‌فای/دیتا خاموش باشد، اتصال و پینگ انجام نمی‌شود و عدد الکی نمایش داده نمی‌شود.
 - ✅ **تست پینگ خارج از VPN**: پینگ همیشه روی شبکه‌ی واقعی (Wi‑Fi/دیتا) انجام می‌شود و وقتی VPN روشن است از داخل تونل رد نمی‌شود.

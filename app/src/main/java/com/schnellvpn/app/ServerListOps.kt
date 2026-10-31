@@ -47,11 +47,15 @@ object ServerListOps {
         val out = ArrayList<VpnServer>()
         for (list in fetched.values) {
             if (list == null) continue
-            for (s in list) if (seen.add(s.link)) out.add(s)
+            for (s in list) if (seen.add(dupKey(s))) out.add(s)
         }
-        for (s in kept) if (seen.add(s.link)) out.add(s)
+        for (s in kept) if (seen.add(dupKey(s))) out.add(s)
         return out
     }
+
+    /** کلید حذف تکراری: کانفیگ‌های لوکال با نام متفاوت باید جدا بمانند. */
+    private fun dupKey(s: VpnServer): String =
+        if (isLocalLink(s.link)) s.link + "|" + s.name else s.link
 
     /** آیا این کانفیگ به آدرس لوکال اشاره می‌کند؟ (همیشه بالای لیست و بدون پینگ) */
     fun isLocalLink(link: String): Boolean = try {

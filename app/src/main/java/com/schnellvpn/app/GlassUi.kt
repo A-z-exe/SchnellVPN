@@ -42,14 +42,14 @@ fun GlassBackground(isDark: Boolean, enabled: Boolean, content: @Composable BoxS
     )
 
     val base = if (isDark) {
-        listOf(Color(0xFF0B1226), Color(0xFF141B3D), Color(0xFF0D2233))
+        listOf(Color(0xFF0A1226), Color(0xFF0E1B33), Color(0xFF0C2438))
     } else {
-        listOf(Color(0xFFEAF1FF), Color(0xFFF1E9FF), Color(0xFFE3F7F3))
+        listOf(Color(0xFFF2F7FA), Color(0xFFEAF6F4), Color(0xFFFDF3E4))
     }
     val blobs = if (isDark) {
-        listOf(Color(0xFF6C5CE7), Color(0xFF00C2B8), Color(0xFFF5A623))
+        listOf(Color(0xFF22D3BE), Color(0xFF1E5F8C), Color(0xFFF5A623))
     } else {
-        listOf(Color(0xFF9DB4FF), Color(0xFFB6F0E4), Color(0xFFFFD7A8))
+        listOf(Color(0xFF7FE3D6), Color(0xFFA9C7E8), Color(0xFFFFD08A))
     }
     val strength = if (isDark) 0.55f else 0.70f
 
