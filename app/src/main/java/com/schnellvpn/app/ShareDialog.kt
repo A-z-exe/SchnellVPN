@@ -29,8 +29,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.zxing.BarcodeFormat
@@ -89,15 +87,6 @@ fun ShareDialog(colors: AppColors, title: String, text: String, onDismiss: () ->
             } else {
                 Text("ساخت QR ممکن نشد", color = colors.coral, fontSize = 12.sp)
             }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text,
-                color = colors.textDim,
-                fontSize = 11.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis
-            )
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GhostButton(colors, "کپی", onClick = {

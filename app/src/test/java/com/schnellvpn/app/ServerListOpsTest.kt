@@ -1,6 +1,8 @@
 package com.schnellvpn.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ServerListOpsTest {
@@ -23,6 +25,17 @@ class ServerListOpsTest {
     fun sortByPingIsStableForEqualPings() {
         val sorted = ServerListOps.sortByPing(listOf(srv(1, "a", 50), srv(2, "b", 50), srv(3, "c", 50)))
         assertEquals(listOf("a", "b", "c"), sorted.map { it.link })
+    }
+
+    @Test
+    fun localServersStayFirstAndNeedNoPing() {
+        val local = "vless://11111111-2222-3333-4444-555555555555@127.0.0.1:1080?type=tcp#local"
+        val sorted = ServerListOps.sortByPing(
+            listOf(srv(1, "far", 40), srv(2, local, null), srv(3, "dead", null))
+        )
+        assertEquals(listOf(local, "far", "dead"), sorted.map { it.link })
+        assertTrue(ServerListOps.isLocalLink(local))
+        assertFalse(ServerListOps.isLocalLink("far"))
     }
 
     @Test

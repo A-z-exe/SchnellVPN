@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
@@ -370,6 +371,12 @@ class MainActivity : ComponentActivity() {
                                                 if (pid != activeProfileId) switchProfile(pid)
                                                 selectedServerId = sid
                                                 syncActiveProfile()
+                                                // اگر متصل است، سرور جدید را جایگزین می‌کند (قطع → اتصال)
+                                                if (connected || connecting) {
+                                                    servers.find { it.id == sid }?.link?.let { link ->
+                                                        connectAfterDisconnect(scope, link)
+                                                    }
+                                                }
                                             },
                                             onTestPings = {
                                                 if (!NetworkUtils.hasInternet(this@MainActivity)) {
@@ -385,16 +392,19 @@ class MainActivity : ComponentActivity() {
                                                             servers.toList(),
                                                             network = NetworkUtils.underlyingNetwork(this@MainActivity)
                                                         )
-                                                        for (i in servers.indices) {
-                                                            val s = servers[i]
-                                                            servers[i] = s.copy(pingMs = results[s.id])
-                                                        }
+                                                        val selectedLink = servers.find { it.id == selectedServerId }?.link
+                                                        val (sorted, newSelected) = ServerListOps.applyPings(
+                                                            servers.toList(), results, selectedLink
+                                                        )
+                                                        servers.clear(); servers.addAll(sorted)
+                                                        selectedServerId = newSelected
                                                         syncActiveProfile()
                                                         val ok = results.values.count { it != null }
                                                         showToast(scope, "پینگ: $ok از ${results.size} سرور پاسخ دادند")
                                                     }
                                                 }
                                             },
+                                            onSmartConnect = { smartConnectAndConnect(scope) },
                                             onImport = { addLinkInput = ""; showAddLinkDialog = true },
                                             onScanQr = { startQrScan() }
                                         )
@@ -504,6 +514,7 @@ class MainActivity : ComponentActivity() {
                                         ?: servers.firstOrNull()?.name,
                                     connected = connected,
                                     connecting = connecting,
+                                    onPing = { pingSelected(scope) },
                                     onToggle = { toggleConnect(scope) }
                                 )
                                 BottomNav(colors = colors, current = currentTab, onSelect = { currentTab = it })
@@ -886,10 +897,6 @@ class MainActivity : ComponentActivity() {
             stopVpn()
             showToast(scope, "اتصال قطع شد")
         } else {
-            if (smartConnect) {
-                smartConnectAndConnect(scope)
-                return
-            }
             val link = servers.find { it.id == selectedServerId }?.link
                 ?: activeProfile()?.selectedServer?.link
                 ?: servers.firstOrNull()?.link
@@ -919,6 +926,52 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** اگر اتصالی در جریان است، اول کامل قطع می‌کند و بعد به سرور جدید وصل می‌شود. */
+    private fun connectAfterDisconnect(scope: kotlinx.coroutines.CoroutineScope, link: String) {
+        val active = VpnStatus.isConnected.value || VpnStatus.isConnecting.value || connected || connecting
+        if (active) stopVpn()
+        scope.launch {
+            var waited = 0
+            while (waited < 4_000 &&
+                (VpnStatus.isConnected.value || VpnStatus.isConnecting.value)
+            ) {
+                delay(150)
+                waited += 150
+            }
+            if (active) delay(300)
+            connecting = true
+            VpnStatus.setConnecting(true)
+            connectVpn(link)
+            armConnectTimeout(scope)
+        }
+    }
+
+    /** پینگ مجدد سرور انتخاب‌شده از دکمه‌ی نوار پایین. */
+    private fun pingSelected(scope: kotlinx.coroutines.CoroutineScope) {
+        val server = servers.find { it.id == selectedServerId }
+        if (server == null) {
+            showToast(scope, "اول یک سرور انتخاب کن")
+            return
+        }
+        scope.launch {
+            showToast(scope, "در حال پینگ…")
+            val ping = PingTester.pingLink(
+                server.link,
+                NetworkUtils.underlyingNetwork(this@MainActivity)
+            )
+            val idx = servers.indexOfFirst { it.id == server.id }
+            if (idx >= 0) {
+                servers[idx] = servers[idx].copy(pingMs = ping)
+                syncActiveProfile()
+            }
+            when {
+                ping == 0 -> showToast(scope, "Local — بالاست")
+                ping == null -> showToast(scope, "سرور پاسخ نداد")
+                else -> showToast(scope, "پینگ: $ping ms")
+            }
+        }
+    }
+
     /** تست همه‌ی سرورها، انتخاب بهترین و اتصال. اگر سرور جواب نداد، سرویس خودش سوئیچ می‌کند. */
     private fun smartConnectAndConnect(scope: kotlinx.coroutines.CoroutineScope) {
         if (servers.isEmpty()) {
@@ -930,30 +983,37 @@ class MainActivity : ComponentActivity() {
             return
         }
         scope.launch {
-            connecting = true
-            VpnStatus.setConnecting(true)
+            val wasConnected = connected || VpnStatus.isConnected.value
+            if (!wasConnected) {
+                connecting = true
+                VpnStatus.setConnecting(true)
+            }
             showToast(scope, "در حال تست سرورها…")
             val results = PingTester.pingAll(
                 servers.toList(),
                 network = NetworkUtils.underlyingNetwork(this@MainActivity)
             )
-            for (i in servers.indices) {
-                servers[i] = servers[i].copy(pingMs = results[servers[i].id])
-            }
+            val selectedLink = servers.find { it.id == selectedServerId }?.link
+            val (sorted, newSelected) = ServerListOps.applyPings(
+                servers.toList(), results, selectedLink
+            )
+            servers.clear(); servers.addAll(sorted)
+            selectedServerId = newSelected
             syncActiveProfile()
-            val best = servers
-                .filter { results[it.id] != null }
-                .minByOrNull { results[it.id] ?: Int.MAX_VALUE }
+            val best = sorted
+                .filter { it.pingMs != null && !PingTester.isLocalLink(it.link) }
+                .minByOrNull { it.pingMs ?: Int.MAX_VALUE }
             if (best == null) {
-                connecting = false
-                VpnStatus.setConnecting(false)
+                if (!wasConnected) {
+                    connecting = false
+                    VpnStatus.setConnecting(false)
+                }
                 showToast(scope, "هیچ سروری پاسخ نداد")
             } else {
                 selectedServerId = best.id
                 syncActiveProfile()
                 showToast(scope, "بهترین سرور: ${best.name}")
-                connectVpn(best.link)
-                armConnectTimeout(scope)
+                connectAfterDisconnect(scope, best.link)
             }
         }
     }
@@ -1097,7 +1157,7 @@ fun LoginScreen(
             )
         }
         Spacer(Modifier.height(10.dp))
-        Text("نسخه 1.4.0", color = colors.textDim, fontSize = 10.sp)
+        Text("نسخه 1.4.1", color = colors.textDim, fontSize = 10.sp)
     }
     }
 }
@@ -1332,6 +1392,7 @@ fun ServersScreen(
     onRefresh: () -> Unit,
     onSelect: (Int, Int) -> Unit,
     onTestPings: () -> Unit,
+    onSmartConnect: () -> Unit,
     onImport: () -> Unit,
     onScanQr: () -> Unit
 ) {
@@ -1345,6 +1406,7 @@ fun ServersScreen(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("کانفیگ‌ها", color = colors.text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
+            IconAction(colors, Icons.Filled.Bolt, "اتصال هوشمند", tint = colors.amber) { onSmartConnect() }
             IconAction(colors, Icons.Filled.QrCodeScanner, "اسکن QR") { onScanQr() }
             IconAction(colors, Icons.Filled.Add, "افزودن کانفیگ") { onImport() }
             IconAction(
@@ -1463,8 +1525,13 @@ fun ServerCard(
     onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val ping = if (liveLatencyMs > 0) liveLatencyMs else server.pingMs
+    val live = liveLatencyMs > 0
+    val rawPing = if (live) liveLatencyMs else server.pingMs
+    val host = hostOf(server)
+    val isLocal = !live && (host == "127.0.0.1" || host.equals("localhost", true) || host == "::1")
+    val ping = if (rawPing != null && rawPing > 4000) null else rawPing
     val pingColor = when {
+        isLocal -> colors.teal
         ping == null -> colors.coral
         ping < 120 -> colors.teal
         ping < 250 -> colors.amber
@@ -1509,7 +1576,12 @@ fun ServerCard(
                     .padding(horizontal = 7.dp, vertical = 2.dp)
             ) {
                 Text(
-                    if (ping == null) "Timeout" else "$ping ms",
+                    when {
+                        live -> "$liveLatencyMs ms"
+                        isLocal -> "Local"
+                        ping == null -> "Timeout"
+                        else -> "$ping ms"
+                    },
                     color = pingColor, fontSize = 9.5.sp, fontWeight = FontWeight.Bold
                 )
             }
@@ -1548,6 +1620,7 @@ fun ConnectBar(
     serverName: String?,
     connected: Boolean,
     connecting: Boolean,
+    onPing: () -> Unit,
     onToggle: () -> Unit
 ) {
     Row(
@@ -1578,6 +1651,8 @@ fun ConnectBar(
                 maxLines = 1, overflow = TextOverflow.Ellipsis
             )
         }
+        IconAction(colors, Icons.Filled.Refresh, "پینگ مجدد", tint = colors.teal) { onPing() }
+        Spacer(Modifier.width(4.dp))
         Box(
             Modifier
                 .clip(RoundedCornerShape(14.dp))
@@ -1665,7 +1740,7 @@ fun SettingsScreen(
         SettingRow(
             colors,
             "اتصال هوشمند (بهترین سرور)",
-            "تست خودکار، انتخاب سریع‌ترین و سوئیچ در صورت قطعی",
+            "دکمه‌ی ⚡ سریع‌ترین را وصل می‌کند؛ در صورت قطعی خودکار سوئیچ می‌شود",
             smartConnect,
             onToggleSmartConnect
         )
@@ -1756,7 +1831,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
         Text("درباره", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        AboutRow(colors, "نسخه برنامه", "1.4.0")
+        AboutRow(colors, "نسخه برنامه", "1.4.1")
         AboutRow(colors, "هسته اتصال", "Xray-core")
         AboutRow(colors, "توسعه‌دهنده", "A-z-exe (Amirhosseinzarei)")
         Row(

@@ -44,7 +44,10 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     private var coreController: CoreController? = null
     private var statsJob: Job? = null
     private var healthJob: Job? = null
+    private var connectJob: Job? = null
     private var currentLink: String? = null
+    /** سرورهایی که در همین جلسه امتحان شده‌اند تا سوئیچ خودکار بین دو سرور مرده بک‌اند‌فورث نشود. */
+    private val failoverTried: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     private val isConnected = AtomicBoolean(false)
     private val isConnecting = AtomicBoolean(false)
@@ -94,6 +97,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 enterForeground("در حال اتصال…")
                 val link = intent.getStringExtra(EXTRA_LINK)
                 if (!link.isNullOrEmpty()) {
+                    failoverTried.clear()
                     startVpn(link)
                 } else {
                     Log.e(TAG, "Link is empty")
@@ -109,6 +113,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     }
 
     override fun onDestroy() {
+        connectJob?.cancel()
         try { unregisterReceiver(screenOffReceiver) } catch (e: Exception) { /* already gone */ }
         // Best-effort synchronous release in case the system destroys us mid-connection.
         releaseResources()
@@ -133,7 +138,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         VpnStatus.setConnecting(true)
         VpnStatus.setLastError(null)
 
-        serviceScope.launch {
+        connectJob = serviceScope.launch {
             try {
                 Log.d(TAG, "========== VPN CONNECT START ==========")
 
@@ -216,6 +221,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 VpnStatus.setConnecting(false)
                 VpnStatus.setConnected(true)
                 VpnStatus.setConnectStartMillis(System.currentTimeMillis())
+                currentLink?.let { failoverTried.add(it) }
                 withContext(Dispatchers.Main) { updateNotification("🟢 متصل شدید", true) }
                 Log.d(TAG, "========== VPN CONNECTED ==========")
 
@@ -239,8 +245,9 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
 
     private fun stopVpn() {
         disconnectRequested.set(true)
-        // If a connect is in flight, its catch/finally path performs the cleanup.
-        if (isConnecting.get()) return
+        // حتی اگر اتصال در جریان باشد، فوراً متوقفش کن تا کاربر روی «قطع» گیر نکند.
+        connectJob?.cancel()
+        isConnecting.set(false)
         serviceScope.launch { cleanupResources() }
     }
 
@@ -269,6 +276,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
+            connectJob = null
             Log.d(TAG, "========== VPN STOPPED ==========")
         } finally {
             isCleaning.set(false)
@@ -294,10 +302,12 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     failures++
                     VpnStatus.setDataFlowing(false)
                     if (failures >= 2) {
-                        if (ProfileManager.loadSmartConnect(this@SchnellVpnService) && tryFailover()) {
-                            break
-                        }
-                        VpnStatus.setLastError("داده‌ای از تونل رد نمی‌شود — اتصال قطع شد")
+                        val smart = ProfileManager.loadSmartConnect(this@SchnellVpnService)
+                        if (smart && tryFailover()) break
+                        VpnStatus.setLastError(
+                            if (smart) "هیچ سرور دیگری جواب نداد — اتصال قطع شد"
+                            else "داده‌ای از تونل رد نمی‌شود — اتصال قطع شد"
+                        )
                         cleanupResources()
                         break
                     }
@@ -316,11 +326,18 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         val activeId = ProfileStore.loadActiveId(this)
         val profile = profiles.find { it.id == activeId } ?: return false
         val next = profile.servers
-            .filter { it.link.isNotBlank() && it.link != oldLink }
+            .filter {
+                it.link.isNotBlank() &&
+                    it.link != oldLink &&
+                    it.link !in failoverTried &&
+                    !ServerListOps.isLocalLink(it.link)
+            }
             .sortedBy { it.pingMs ?: Int.MAX_VALUE }
             .firstOrNull() ?: return false
 
         Log.d(TAG, "Failover → ${next.name}")
+        failoverTried.add(oldLink)
+        failoverTried.add(next.link)
         ProfileStore.save(
             this,
             profiles.map { if (it.id == activeId) it.copy(selectedServerId = next.id) else it }

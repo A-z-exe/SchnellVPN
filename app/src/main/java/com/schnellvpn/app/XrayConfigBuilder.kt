@@ -27,7 +27,7 @@ object XrayConfigBuilder {
             put("protocol", "socks")
             put("sniffing", JSONObject().apply {
                 put("enabled", true)
-                put("destOverride", JSONArray().put("http").put("tls"))
+                put("destOverride", JSONArray().put("http").put("tls").put("quic"))
                 put("routeOnly", false)
             })
             put("settings", JSONObject().apply {
@@ -64,10 +64,47 @@ object XrayConfigBuilder {
         root.put("dns", JSONObject().put("servers", JSONArray().put("1.1.1.1").put("8.8.8.8")))
 
         root.put("routing", JSONObject().apply {
-            put("domainStrategy", "AsIs"); put("rules", JSONArray())
+            put("domainStrategy", "AsIs")
+            // بستن QUIC/UDP 443 تا اپ‌هایی مثل اینستاگرام به TCP/TLS برگردند
+            // (در برخی شبکه‌ها/سرورها UDP به‌درستی عبور نمی‌کند)
+            put("rules", JSONArray().put(JSONObject().apply {
+                put("type", "field")
+                put("network", "udp")
+                put("port", "443")
+                put("outboundTag", "BLOCK")
+            }))
         })
 
         return root.toString(2)
+    }
+
+    /** نوع امنیت لایه‌ی انتقال: tls / reality / none */
+    fun securityOf(link: String): String {
+        return try {
+            parseOutbound(link).optJSONObject("streamSettings")?.optString("security", "none") ?: "none"
+        } catch (e: Exception) {
+            "none"
+        }
+    }
+
+    /** SNI / serverName مناسب برای handshake واقعی (Reality/TLS). */
+    fun serverNameOf(link: String): String? {
+        return try {
+            val ss = parseOutbound(link).optJSONObject("streamSettings") ?: return null
+            val tls = ss.optJSONObject("tlsSettings") ?: ss.optJSONObject("realitySettings")
+            val sn = tls?.optString("serverName").orEmpty()
+            if (sn.isNotBlank()) return sn
+            val wsHost = ss.optJSONObject("wsSettings")
+                ?.optJSONObject("headers")
+                ?.optString("Host").orEmpty()
+            if (wsHost.isNotBlank()) return wsHost
+            val httpHost = ss.optJSONObject("httpSettings")
+                ?.optJSONArray("host")
+                ?.optString(0).orEmpty()
+            if (httpHost.isNotBlank()) httpHost else null
+        } catch (e: Exception) {
+            null
+        }
     }
 
     /** host/port of the remote server, or null if the link can't be parsed. */

@@ -53,9 +53,24 @@ object ServerListOps {
         return out
     }
 
-    /** Lowest ping first; unreachable (null) last; equal pings keep their previous order. */
-    fun sortByPing(list: List<VpnServer>): List<VpnServer> =
-        list.sortedWith(compareBy<VpnServer> { it.pingMs == null }.thenBy { it.pingMs ?: Int.MAX_VALUE })
+    /** آیا این کانفیگ به آدرس لوکال اشاره می‌کند؟ (همیشه بالای لیست و بدون پینگ) */
+    fun isLocalLink(link: String): Boolean = try {
+        val h = XrayConfigBuilder.endpointOf(link)?.first
+        h == "127.0.0.1" || h.equals("localhost", ignoreCase = true) || h == "::1" || h == "0.0.0.0"
+    } catch (e: Exception) {
+        false
+    }
+
+    /** Lowest ping first; local (127.0.0.1) always first; unreachable (null) last; equal pings keep order. */
+    fun sortByPing(list: List<VpnServer>): List<VpnServer> {
+        val localFlags = list.map { isLocalLink(it.link) }
+        return list.indices
+            .sortedWith(
+                compareBy<Int> { !localFlags[it] && list[it].pingMs == null }
+                    .thenBy { if (localFlags[it]) 0 else list[it].pingMs ?: Int.MAX_VALUE }
+            )
+            .map { list[it] }
+    }
 
     /** Re-assigns ids 1..n in list order. Returns the list and the new id of [selectedLink] (or the first server). */
     fun renumber(list: List<VpnServer>, selectedLink: String?): Pair<List<VpnServer>, Int> {

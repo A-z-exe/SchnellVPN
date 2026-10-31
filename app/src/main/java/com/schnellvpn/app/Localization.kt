@@ -112,14 +112,18 @@ private val TRANSLATIONS: Map<String, List<String>> = mapOf(
         "스마트 연결 (최적 서버)",
         "スマート接続（最適サーバー）"
     ),
-    "تست خودکار، انتخاب سریع‌ترین و سوئیچ در صورت قطعی" to listOf(
-        "Auto-test, pick the fastest, switch on failure",
-        "Automatisch testen, schnellsten wählen, bei Ausfall wechseln",
-        "자동 테스트 후 가장 빠른 서버 선택, 실패 시 전환",
-        "自動テストで最速を選択し、失敗時に切り替え"
+    "دکمه‌ی ⚡ سریع‌ترین را وصل می‌کند؛ در صورت قطعی خودکار سوئیچ می‌شود" to listOf(
+        "⚡ connects the fastest; auto-switches on failure",
+        "⚡ verbindet den schnellsten; wechselt bei Ausfall automatisch",
+        "⚡ 가장 빠른 서버로 연결, 실패 시 자동 전환",
+        "⚡ 最速に接続し、失敗時は自動切替"
     ),
     "در حال تست سرورها…" to listOf("Testing servers…", "Server werden getestet…", "서버 테스트 중…", "サーバーをテスト中…"),
+    "در حال پینگ…" to listOf("Pinging…", "Ping läuft…", "핑 중…", "Ping 中…"),
+    "سرور پاسخ نداد" to listOf("Server did not respond", "Server hat nicht geantwortet", "서버가 응답하지 않음", "サーバーが応答しません"),
+    "Local — بالاست" to listOf("Local — up", "Lokal — erreichbar", "로컬 — 정상", "ローカル — 稼働中"),
     "هیچ سروری پاسخ نداد" to listOf("No server responded", "Kein Server hat geantwortet", "응답한 서버가 없습니다", "応答したサーバーがありません"),
+    "هیچ سرور دیگری جواب نداد — اتصال قطع شد" to listOf("No other server responded — disconnected", "Kein anderer Server antwortete — getrennt", "다른 서버가 응답하지 않아 연결 해제됨", "他のサーバーが応答せず切断しました"),
     "سروری موجود نیست" to listOf("No servers available", "Keine Server verfügbar", "사용 가능한 서버가 없습니다", "利用可能なサーバーがありません"),
     "بعد از روشن شدن گوشی خودکار وصل شود" to listOf(
         "Connect automatically after boot",
@@ -278,7 +282,7 @@ private val TRANSLATIONS: Map<String, List<String>> = mapOf(
         "유효한 링크를 입력하세요",
         "有効なリンクを入力してください"
     ),
-    "نسخه 1.4.0" to listOf("Version 1.4.0", "Version 1.4.0", "버전 1.4.0", "バージョン 1.4.0")
+    "نسخه 1.4.1" to listOf("Version 1.4.1", "Version 1.4.1", "버전 1.4.1", "バージョン 1.4.1")
 )
 
 fun translateText(text: String, lang: AppLanguage): String {
@@ -380,6 +384,16 @@ fun translateText(text: String, lang: AppLanguage): String {
             AppLanguage.DE -> "Bester Server: $n"
             AppLanguage.KO -> "최고 서버: $n"
             AppLanguage.JA -> "最適サーバー: $n"
+            else -> text
+        }
+    }
+    Regex("^پینگ: (\\d+) ms$").find(text)?.let { m ->
+        val v = m.groupValues[1]
+        return when (lang) {
+            AppLanguage.EN -> "Ping: $v ms"
+            AppLanguage.DE -> "Ping: $v ms"
+            AppLanguage.KO -> "핑: $v ms"
+            AppLanguage.JA -> "Ping: $v ms"
             else -> text
         }
     }
