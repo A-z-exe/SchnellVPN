@@ -209,8 +209,17 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 // تا وقتی مطمئن نشدیم دیتا واقعاً رد می‌شود، UI را «در حال اتصال» نگه می‌داریم.
                 // (پینگ فقط می‌گوید پورت سرور باز است؛ دلیل اصلی «وصل می‌شوم ولی چیزی باز نمی‌شود» همین بود.)
                 withContext(Dispatchers.Main) { updateNotification("⏳ بررسی عبور دیتا…", true) }
-                delay(800) // فرصت کوتاه تا SOCKS محلی Xray بالا بیاید
-                val tunnelMs = TunnelProbe.probeWithLatency(SOCKS_PORT)
+                // فرصت کوتاه تا SOCKS محلی Xray بالا بیاید؛ سپس یک تست سریع با بودجه‌ی زمانی
+                var tunnelMs: Long? = null
+                for (attempt in 0 until 2) {
+                    delay(if (attempt == 0) 300L else 400L)
+                    if (disconnectRequested.get()) break
+                    tunnelMs = TunnelProbe.probeWithLatency(
+                        SOCKS_PORT,
+                        if (attempt == 0) 4000 else 2500
+                    )
+                    if (tunnelMs != null) break
+                }
                 if (disconnectRequested.get()) throw CancellationException("Disconnected during connect")
                 if (tunnelMs == null) {
                     throw IllegalStateException("اتصال برقرار شد ولی دیتا رد نمی‌شود — سرور یا کانفیگ را چک کن")

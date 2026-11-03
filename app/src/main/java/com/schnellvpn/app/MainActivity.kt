@@ -44,6 +44,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
@@ -145,6 +146,10 @@ class MainActivity : ComponentActivity() {
     private var showAddLinkDialog by mutableStateOf(false)
     private var addLinkInput by mutableStateOf("")
     private var addLinkLoading by mutableStateOf(false)
+
+    private var editingServerId by mutableStateOf(-1)
+    private var editServerName by mutableStateOf("")
+    private var editServerLink by mutableStateOf("")
 
     // ==================== مجوز VPN ====================
     private var pendingLink: String? = null
@@ -402,6 +407,11 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             },
                                             onSmartConnect = { smartConnectAndConnect(scope) },
+                                            onEditServer = { s ->
+                                                editingServerId = s.id
+                                                editServerName = s.name
+                                                editServerLink = s.link
+                                            },
                                             onImport = { addLinkInput = ""; showAddLinkDialog = true },
                                             onScanQr = { startQrScan() }
                                         )
@@ -518,6 +528,18 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        if (editingServerId >= 0) {
+                            EditServerDialog(
+                                colors = colors,
+                                name = editServerName,
+                                link = editServerLink,
+                                onNameChange = { editServerName = it },
+                                onLinkChange = { editServerLink = it },
+                                onSave = { saveEditedServer(scope) },
+                                onDismiss = { editingServerId = -1 }
+                            )
+                        }
+
                         if (showAddLinkDialog) {
                             AddLinkDialog(
                                 colors = colors,
@@ -609,6 +631,25 @@ class MainActivity : ComponentActivity() {
             delay(2200)
             if (toastText == msg) toastText = null
         }
+    }
+
+    /** ذخیره‌ی تغییرات سرور از دیالوگ ویرایش (نام/لینک). */
+    private fun saveEditedServer(scope: kotlinx.coroutines.CoroutineScope) {
+        val idx = servers.indexOfFirst { it.id == editingServerId }
+        if (idx < 0) {
+            editingServerId = -1
+            return
+        }
+        val link = editServerLink.trim()
+        if (link.isEmpty() || XrayConfigBuilder.endpointOf(link) == null) {
+            showToast(scope, "لینک کانفیگ معتبر نیست")
+            return
+        }
+        val name = editServerName.trim().ifEmpty { servers[idx].name }
+        servers[idx] = servers[idx].copy(name = name, link = link, pingMs = null)
+        syncActiveProfile()
+        editingServerId = -1
+        showToast(scope, "سرور ویرایش شد")
     }
 
     // ==================== پروفایل‌ها ====================
@@ -1165,7 +1206,7 @@ fun LoginScreen(
             )
         }
         Spacer(Modifier.height(10.dp))
-        Text("نسخه 1.4.2", color = colors.textDim, fontSize = 10.sp)
+        Text("نسخه 1.4.3", color = colors.textDim, fontSize = 10.sp)
     }
     }
 }
@@ -1401,6 +1442,7 @@ fun ServersScreen(
     onSelect: (Int, Int) -> Unit,
     onTestPings: () -> Unit,
     onSmartConnect: () -> Unit,
+    onEditServer: (VpnServer) -> Unit,
     onImport: () -> Unit,
     onScanQr: () -> Unit
 ) {
@@ -1459,6 +1501,7 @@ fun ServersScreen(
                         liveLatencyMs = if (liveConnected && profile.id == activeProfileId && server.id == selectedId) liveLatency else 0,
                         onClick = { onSelect(profile.id, server.id) },
                         onShare = { onShareServer(server) },
+                        onEdit = { onEditServer(server) },
                         onDelete = { onDeleteServer(profile.id, server.id) }
                     )
                 }
@@ -1531,6 +1574,7 @@ fun ServerCard(
     liveLatencyMs: Int = 0,
     onClick: () -> Unit,
     onShare: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     val live = liveLatencyMs > 0
@@ -1595,6 +1639,7 @@ fun ServerCard(
             }
         }
         IconAction(colors, Icons.Filled.Share, "اشتراک‌گذاری", tint = colors.teal) { onShare() }
+        IconAction(colors, Icons.Filled.Edit, "ویرایش سرور", tint = colors.amber) { onEdit() }
         IconAction(colors, Icons.Filled.Delete, "حذف", tint = colors.coral) { onDelete() }
     }
 }
@@ -1839,7 +1884,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
         Text("درباره", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        AboutRow(colors, "نسخه برنامه", "1.4.2")
+        AboutRow(colors, "نسخه برنامه", "1.4.3")
         AboutRow(colors, "هسته اتصال", "Xray-core")
         AboutRow(colors, "توسعه‌دهنده", "A-z-exe (Amirhosseinzarei)")
         Row(
@@ -2103,6 +2148,50 @@ fun AddLinkDialog(
             BasicField(colors, value, onChange, "لینک اشتراک یا vless/vmess/trojan/ss")
             Spacer(Modifier.height(14.dp))
             PrimaryButton(colors, if (loading) "در حال دریافت…" else "افزودن", onClick = { if (!loading) onConfirm() })
+        }
+    }
+}
+
+/** ویرایش نام و لینک یک سرور (مثل دکمه‌ی مداد v2rayNG/Hiddify). */
+@Composable
+fun EditServerDialog(
+    colors: AppColors,
+    name: String,
+    link: String,
+    onNameChange: (String) -> Unit,
+    onLinkChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.55f))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier
+                .padding(24.dp)
+                .background(colors.surface, RoundedCornerShape(18.dp))
+                .border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                .clickable(onClick = {})
+                .padding(18.dp)
+        ) {
+            Text("ویرایش سرور", color = colors.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            Text("نام سرور", color = colors.textDim, fontSize = 10.5.sp)
+            Spacer(Modifier.height(5.dp))
+            BasicField(colors, name, onNameChange, "نام سرور")
+            Spacer(Modifier.height(12.dp))
+            Text("لینک کانفیگ", color = colors.textDim, fontSize = 10.5.sp)
+            Spacer(Modifier.height(5.dp))
+            BasicField(colors, link, onLinkChange, "vless://… / vmess://… / trojan://… / ss://…")
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GhostButton(colors, "لغو", onClick = onDismiss, modifier = Modifier.weight(1f))
+                PrimaryButton(colors, "ذخیره", onClick = onSave, modifier = Modifier.weight(1f))
+            }
         }
     }
 }

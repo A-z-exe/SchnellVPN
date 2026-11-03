@@ -3,7 +3,7 @@
 [![Build](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml/badge.svg)](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml)
 ![Platform](https://img.shields.io/badge/platform-Android-green)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
-![Version](https://img.shields.io/badge/version-1.4.2-blue)
+![Version](https://img.shields.io/badge/version-1.4.3-blue)
 
 **SchnellVPN** is an Android VPN client built with **Kotlin**, **Jetpack Compose** and **Xray-core**. It supports VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan and Shadowsocks, with multiple subscription profiles, QR import, direct config links, split tunneling, per-app auto-connect, hotspot sharing, multi-language (فارسی / English / Deutsch) and in-app updates from GitHub.
 
@@ -23,6 +23,7 @@
 - ✅ **پینگ واقعی تونل در صفحه‌ی سرورها**: سرورِ متصل همان پینگ واقعی صفحه‌ی خانه را نشان می‌دهد.
 - ✅ **پایش مداوم عبور داده**: هر ۲۰ ثانیه تونل تست می‌شود؛ در صورت قطع داده «بدون داده» نمایش داده و اتصال خودکار قطع می‌شود.
 - ✅ **اتصال هوشمند (بهترین سرور)**: دکمه‌ی ⚡ همه‌ی سرورها را تست و سریع‌ترین را وصل می‌کند و در صورت عدم پاسخ‌دهی **خودکار** به سرور بعدی سوئیچ می‌شود؛ انتخاب دستی سرور همیشه محترم است.
+- ✅ **ویرایش هر سرور**: تغییر نام و لینک کانفیگ با دکمه‌ی مداد.
 - ✅ **تغییر سرور در حین اتصال**: با انتخاب سرور جدید، اتصال کامل قطع و دوباره وصل می‌شود.
 - ✅ **پینگ مجدد سرور انتخاب‌شده** از نوار پایین کنار دکمه‌ی اتصال/قطع.
 - ✅ نمایش مدت اتصال، حجم مصرفی و سرعت لحظه‌ای

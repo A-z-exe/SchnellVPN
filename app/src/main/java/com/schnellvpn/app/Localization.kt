@@ -120,6 +120,13 @@ private val TRANSLATIONS: Map<String, List<String>> = mapOf(
     ),
     "در حال تست سرورها…" to listOf("Testing servers…", "Server werden getestet…", "서버 테스트 중…", "サーバーをテスト中…"),
     "در حال پینگ…" to listOf("Pinging…", "Ping läuft…", "핑 중…", "Ping 中…"),
+    "ویرایش سرور" to listOf("Edit server", "Server bearbeiten", "서버 편집", "サーバーを編集"),
+    "نام سرور" to listOf("Server name", "Servername", "서버 이름", "サーバー名"),
+    "لینک کانفیگ" to listOf("Config link", "Konfig-Link", "구성 링크", "構成リンク"),
+    "ذخیره" to listOf("Save", "Speichern", "저장", "保存"),
+    "لغو" to listOf("Cancel", "Abbrechen", "취소", "キャンセル"),
+    "سرور ویرایش شد" to listOf("Server updated", "Server aktualisiert", "서버가 수정되었습니다", "サーバーを更新しました"),
+    "لینک کانفیگ معتبر نیست" to listOf("Invalid config link", "Ungültiger Konfig-Link", "유효하지 않은 구성 링크", "無効な構成リンク"),
     "در حال تست تأخیر واقعی کانفیگ‌ها…" to listOf("Measuring real config delay…", "Echte Konfig-Verzögerung wird gemessen…", "실제 구성 지연 측정 중…", "実際の構成遅延を測定中…"),
     "سرور پاسخ نداد" to listOf("Server did not respond", "Server hat nicht geantwortet", "서버가 응답하지 않음", "サーバーが応答しません"),
     "Local — بالاست" to listOf("Local — up", "Lokal — erreichbar", "로컬 — 정상", "ローカル — 稼働中"),
@@ -283,7 +290,7 @@ private val TRANSLATIONS: Map<String, List<String>> = mapOf(
         "유효한 링크를 입력하세요",
         "有効なリンクを入力してください"
     ),
-    "نسخه 1.4.2" to listOf("Version 1.4.2", "Version 1.4.2", "버전 1.4.2", "バージョン 1.4.2")
+    "نسخه 1.4.3" to listOf("Version 1.4.3", "Version 1.4.3", "버전 1.4.3", "バージョン 1.4.3")
 )
 
 fun translateText(text: String, lang: AppLanguage): String {
