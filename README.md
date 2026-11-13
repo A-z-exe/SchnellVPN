@@ -1,15 +1,34 @@
 # SchnellVPN
 
 [![Build](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml/badge.svg)](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml)
+[![Windows](https://github.com/A-z-exe/SchnellVPN/actions/workflows/windows.yml/badge.svg)](https://github.com/A-z-exe/SchnellVPN/actions/workflows/windows.yml)
 ![Platform](https://img.shields.io/badge/platform-Android-green)
+![Windows](https://img.shields.io/badge/platform-Windows%20beta-blue)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
 ![Version](https://img.shields.io/badge/version-1.4.3-blue)
 
-**SchnellVPN** is an Android VPN client built with **Kotlin**, **Jetpack Compose** and **Xray-core**. It supports VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan and Shadowsocks, with multiple subscription profiles, QR import, direct config links, split tunneling, per-app auto-connect, hotspot sharing, multi-language (فارسی / English / Deutsch) and in-app updates from GitHub.
+**SchnellVPN** is a VPN client built on **Xray-core**, shipped for two platforms that share the
+same engine, link formats and honesty checks (no "connected" before data really flows):
+
+| | 🤖 **Android** (stable) | 🪟 **Windows** (beta) |
+| --- | --- | --- |
+| Version | **1.4.3** | **0.1.0** |
+| Built with | Kotlin + Jetpack Compose | Python + PySide6 |
+| Engine | AndroidLibXrayLite | Xray-core 26.x (`xray.exe`, bundled) |
+| Tunnel | TUN (VpnService) + hev-socks5-tunnel | SOCKS/HTTP + WinINET system proxy |
+| Extras | QR import, split tunneling, per-app auto-connect, hotspot sharing | real delay, 20 s data-flow monitor, profiles, tray, fa/en/de |
+| Download | [Latest APK](https://github.com/A-z-exe/SchnellVPN/releases/latest) | [Windows beta release](https://github.com/A-z-exe/SchnellVPN/releases?q=Windows) |
+
+The Android app supports VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan and Shadowsocks,
+with multiple subscription profiles, QR import, direct config links, split tunneling,
+per-app auto-connect, hotspot sharing, multi-language (فارسی / English / Deutsch) and in-app
+updates from GitHub.
 
 [⬇️ Download the latest APK](https://github.com/A-z-exe/SchnellVPN/releases/latest) · [🌐 Website](https://a-z-exe.github.io/SchnellVPN/) · [📦 Releases](https://github.com/A-z-exe/SchnellVPN/releases)
 
 کلاینت VPN برای اندروید با رابط کاربری Jetpack Compose که روی هسته‌ی Xray کار می‌کند.
+نسخهٔ ویندوز (بتا) با Python و PySide6 در پوشهٔ [`windows/`](windows/README.md) است و همان
+هسته، فرمت لینک‌ها و تست واقعی عبور داده را دارد؛ حالت TUN و split tunneling هنوز اضافه نشده است.
 
 ## ✨ ویژگی‌ها
 

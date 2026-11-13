@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.devdata/
+build/
+dist/
+*.spec.bak
+vendor/xray/
+!vendor/xray/.gitkeep
+resources/schnellvpn.ico
+resources/schnellvpn.png
