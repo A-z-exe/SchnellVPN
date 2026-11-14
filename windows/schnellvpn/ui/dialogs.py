@@ -1,11 +1,15 @@
-"""Dialogs: import, server editor, settings, logs and about."""
+"""Dialogs: import, server editor, settings, logs, share and about."""
 
 from __future__ import annotations
 
+import io
 from typing import Callable, Optional
+
+import segno
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QIntValidator
+from PySide6.QtGui import QDesktopServices, QIntValidator, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -284,6 +288,72 @@ class LogsDialog(BaseDialog):
         self.view.setPlainText(text or "")
         if at_bottom:
             bar.setValue(bar.maximum())
+
+
+def qr_pixmap(text: str, size: int = 220) -> QPixmap:
+    qr = segno.make(text, error="m")
+    buffer = io.BytesIO()
+    qr.save(buffer, kind="png", scale=8, border=2, dark="#0B1220", light="#FFFFFF")
+    pixmap = QPixmap()
+    pixmap.loadFromData(buffer.getvalue())
+    return pixmap.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+
+
+class ShareDialog(BaseDialog):
+    def __init__(
+        self,
+        lang: str,
+        text: str,
+        copied_key: str = "copied",
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(lang, parent)
+        self.setWindowTitle(self.tr_("share"))
+        self.setMinimumWidth(360)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 16)
+        layout.setSpacing(12)
+
+        qr = QLabel()
+        qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        qr.setPixmap(qr_pixmap(text))
+        layout.addWidget(qr)
+
+        link = QLabel(text)
+        link.setWordWrap(True)
+        link.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        link.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        link.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        link.setStyleSheet("color: #7C8CA2; font-size: 11px;")
+        layout.addWidget(link)
+
+        row = QHBoxLayout()
+        copy = QPushButton(self.tr_("copy_link"))
+        copy.clicked.connect(self._copy)
+        row.addWidget(copy)
+        row.addStretch(1)
+        close = QPushButton(self.tr_("close"))
+        close.clicked.connect(self.accept)
+        row.addWidget(close)
+        layout.addLayout(row)
+        self._text = text
+        self._copied_key = copied_key
+        self._feedback = QLabel("")
+        self._feedback.setStyleSheet("color: #34D399; font-size: 11px;")
+        self._feedback.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._feedback)
+
+    def _copy(self) -> None:
+        app = QApplication.instance()
+        if app is not None:
+            app.clipboard().setText(self._text)
+        self._feedback.setText(self.tr_(self._copied_key))
 
 
 class AboutDialog(BaseDialog):

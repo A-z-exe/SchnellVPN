@@ -47,6 +47,7 @@ from .dialogs import (
     ImportDialog,
     LogsDialog,
     SettingsDialog,
+    ShareDialog,
 )
 from .i18n import RTL_LANGS, t
 from .speedchart import SpeedChart
@@ -347,8 +348,7 @@ class MainWindow(QMainWindow):
         if not text:
             self._set_hint(t(self.lang, "share_empty"))
             return
-        QGuiApplication.clipboard().setText(text)
-        self._set_hint(t(self.lang, "share_copied"))
+        ShareDialog(self.lang, text, copied_key="share_copied", parent=self).exec()
 
     def _build_footer(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -640,6 +640,7 @@ class MainWindow(QMainWindow):
             return
         menu = QMenu(self)
         copy = menu.addAction(t(self.lang, "copy_link"))
+        share = menu.addAction(t(self.lang, "share"))
         edit = menu.addAction(t(self.lang, "edit"))
         menu.addSeparator()
         delete = menu.addAction(t(self.lang, "delete"))
@@ -647,6 +648,8 @@ class MainWindow(QMainWindow):
         if chosen == copy:
             QGuiApplication.clipboard().setText(server.link)
             self._set_hint(t(self.lang, "copied"))
+        elif chosen == share:
+            ShareDialog(self.lang, server.link, parent=self).exec()
         elif chosen == edit:
             self._edit_server(server)
         elif chosen == delete:
