@@ -320,6 +320,8 @@ class MainWindow(QMainWindow):
         self.delay_button.clicked.connect(self._test_delays)
         self.logs_button = QPushButton()
         self.logs_button.clicked.connect(self._open_logs)
+        self.share_button = QPushButton()
+        self.share_button.clicked.connect(self._share_profile)
         for button in (
             self.add_sub_button,
             self.refresh_button,
@@ -328,8 +330,25 @@ class MainWindow(QMainWindow):
         ):
             row.addWidget(button)
         row.addStretch(1)
+        row.addWidget(self.share_button)
         row.addWidget(self.logs_button)
         return row
+
+    def _share_profile(self) -> None:
+        profile = self.store.profile
+        if profile.subscription_urls:
+            text = "\n".join(profile.subscription_urls)
+        else:
+            server = next(
+                (s for s in profile.servers if s.id == profile.selected_server_id),
+                profile.servers[0] if profile.servers else None,
+            )
+            text = server.link if server else ""
+        if not text:
+            self._set_hint(t(self.lang, "share_empty"))
+            return
+        QGuiApplication.clipboard().setText(text)
+        self._set_hint(t(self.lang, "share_copied"))
 
     def _build_footer(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -385,6 +404,7 @@ class MainWindow(QMainWindow):
         self.ping_button.setText(t(self.lang, "test_ping"))
         self.delay_button.setText(t(self.lang, "test_delay"))
         self.logs_button.setText(t(self.lang, "logs"))
+        self.share_button.setText(t(self.lang, "share"))
         self.settings_button.setToolTip(t(self.lang, "settings"))
         self.theme_button.setToolTip(t(self.lang, "theme"))
         self.add_profile_button.setToolTip(t(self.lang, "new_profile"))
