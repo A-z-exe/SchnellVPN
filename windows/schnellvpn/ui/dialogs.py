@@ -133,7 +133,14 @@ class EditServerDialog(BaseDialog):
 
 
 class SettingsDialog(BaseDialog):
-    def __init__(self, lang: str, settings: dict, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        lang: str,
+        settings: dict,
+        parent: Optional[QWidget] = None,
+        version: str = "",
+        on_check_updates: Optional[Callable[[], None]] = None,
+    ):
         super().__init__(lang, parent)
         self.settings = dict(settings)
         self.setWindowTitle(self.tr_("settings"))
@@ -142,6 +149,17 @@ class SettingsDialog(BaseDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(12)
+
+        if on_check_updates is not None:
+            update_row = QHBoxLayout()
+            version_label = QLabel(self.tr_("version", version=version))
+            version_label.setStyleSheet("color: #7C8CA2; font-size: 11.5px;")
+            update_row.addWidget(version_label)
+            update_row.addStretch(1)
+            check_update = QPushButton(self.tr_("check_update"))
+            check_update.clicked.connect(on_check_updates)
+            update_row.addWidget(check_update)
+            layout.addLayout(update_row)
 
         form = QFormLayout()
         form.setSpacing(10)

@@ -36,7 +36,7 @@ class TunnelClient:
         socks_port: int = SOCKS_PORT,
         http_port: int = HTTP_PORT,
         use_system_proxy: bool = True,
-        probe_timeout: int = 4000,
+        probe_timeout: int = 8000,
     ) -> int:
         if self.runner.running:
             self.disconnect()

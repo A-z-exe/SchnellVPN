@@ -21,8 +21,9 @@ HTTP_ENDPOINTS = (
     "https://www.gstatic.com/generate_204",
     "https://cp.cloudflare.com/generate_204",
     "https://1.1.1.1/",
+    "http://neverssl.com/",
+    "http://1.1.1.1/",
 )
-TCP_TARGETS = (("1.1.1.1", 443), ("8.8.8.8", 53), ("9.9.9.9", 53))
 MAX_PING_MS = 4000
 
 
@@ -116,7 +117,12 @@ def _http_get_through_socks(
 
 
 def probe_with_latency(socks_port: int = 10808, timeout_ms: int = 3000) -> Optional[int]:
-    """Real request through the tunnel; total time never exceeds timeout_ms."""
+    """Real request through the tunnel; total time never exceeds timeout_ms.
+
+    Only a full HTTP exchange counts. A bare TCP/SOCKS connect is not proof of
+    a working tunnel: a dead remote can still accept the dial and answer the
+    SOCKS handshake while no data ever flows.
+    """
     deadline = time.monotonic() + timeout_ms / 1000
 
     for url in HTTP_ENDPOINTS:
@@ -124,22 +130,10 @@ def probe_with_latency(socks_port: int = 10808, timeout_ms: int = 3000) -> Optio
         if left < 0.35:
             break
         try:
-            latency = _http_get_through_socks(url, socks_port, min(left, 1.5))
+            latency = _http_get_through_socks(url, socks_port, min(left, 2.0))
             if latency is not None:
                 return latency
         except (OSError, ssl.SSLError, ValueError):
-            continue
-
-    for host, port in TCP_TARGETS:
-        left = deadline - time.monotonic()
-        if left < 0.25:
-            break
-        started = time.monotonic()
-        try:
-            sock = socks5_connect(host, port, socks_port, min(left, 1.5))
-            sock.close()
-            return max(1, int((time.monotonic() - started) * 1000))
-        except OSError:
             continue
     return None
 

@@ -10,8 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication
+from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -50,7 +50,7 @@ from .dialogs import (
 )
 from .i18n import RTL_LANGS, t
 from .speedchart import SpeedChart
-from .theme import ACCENT, DANGER, SUCCESS, WARN, app_icon, stylesheet
+from .theme import ACCENT, DANGER, SUCCESS, WARN, app_icon, download_icon, stylesheet
 
 STATE_IDLE = "idle"
 STATE_CONNECTING = "connecting"
@@ -228,8 +228,9 @@ class MainWindow(QMainWindow):
         row.addWidget(self.theme_button)
 
         self.update_button = QToolButton()
-        self.update_button.setText("\u2b07")
+        self.update_button.setIconSize(QSize(18, 18))
         self.update_button.clicked.connect(self._check_update)
+        self._refresh_update_icon()
         row.addWidget(self.update_button)
 
         self.settings_button = QToolButton()
@@ -443,6 +444,14 @@ class MainWindow(QMainWindow):
     def _update_theme_button(self) -> None:
         theme = self.store.get_setting("theme", "dark")
         self.theme_button.setText("\u263c" if theme == "dark" else "\u263e")
+        self._refresh_update_icon()
+
+    def _refresh_update_icon(self) -> None:
+        if not hasattr(self, "update_button"):
+            return
+        dark = self.store.get_setting("theme", "dark") == "dark"
+        color = QColor("#E6EDF3") if dark else QColor("#0F172A")
+        self.update_button.setIcon(QIcon(download_icon(18, color)))
 
     def _toggle_theme(self) -> None:
         theme = "light" if self.store.get_setting("theme", "dark") == "dark" else "dark"
@@ -1237,7 +1246,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ dialogs
 
     def _open_settings(self) -> None:
-        dialog = SettingsDialog(self.lang, self.store.settings, self)
+        dialog = SettingsDialog(
+            self.lang,
+            self.store.settings,
+            self,
+            version=__version__,
+            on_check_updates=self._check_update,
+        )
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         values = dialog.values()

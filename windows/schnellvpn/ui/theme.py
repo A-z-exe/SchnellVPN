@@ -12,6 +12,7 @@ from PySide6.QtGui import (
     QLinearGradient,
     QPainter,
     QPainterPath,
+    QPen,
     QPixmap,
     QRadialGradient,
 )
@@ -21,6 +22,38 @@ ACCENT_DARK = "#2563EB"
 SUCCESS = "#34D399"
 WARN = "#FBBF24"
 DANGER = "#F87171"
+
+
+def download_icon(size: int = 18, color: QColor | None = None) -> QPixmap:
+    """Arrow-into-tray glyph, drawn instead of a font so stylesheets cannot
+    override the typeface (Qt style sheets ignore widget setFont)."""
+    tint = color or QColor("#E6EDF3")
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(tint)
+    pen.setWidthF(max(1.6, size * 0.11))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+
+    cx = size / 2
+    top = size * 0.10
+    tip = size * 0.60
+    wing = size * 0.22
+    painter.drawLine(QPointF(cx, top), QPointF(cx, tip))
+    painter.drawLine(QPointF(cx - wing, tip - wing), QPointF(cx, tip))
+    painter.drawLine(QPointF(cx + wing, tip - wing), QPointF(cx, tip))
+
+    tray_y = size * 0.80
+    half = size * 0.28
+    tick = size * 0.14
+    painter.drawLine(QPointF(cx - half, tray_y), QPointF(cx + half, tray_y))
+    painter.drawLine(QPointF(cx - half, tray_y), QPointF(cx - half, tray_y - tick))
+    painter.drawLine(QPointF(cx + half, tray_y), QPointF(cx + half, tray_y - tick))
+    painter.end()
+    return pm
 
 DARK_QSS = """
 QWidget#root { background: #070B12; }

@@ -12,7 +12,7 @@ same engine, link formats and honesty checks (no "connected" before data really 
 
 | | 🤖 **Android** (stable) | 🪟 **Windows** (beta) |
 | --- | --- | --- |
-| Version | **1.4.3** | **0.2.0** |
+| Version | **1.4.3** | **0.2.1** |
 | Built with | Kotlin + Jetpack Compose | Python + PySide6 |
 | Engine | AndroidLibXrayLite | Xray-core 26.x (`xray.exe`, bundled) |
 | Tunnel | TUN (VpnService) + hev-socks5-tunnel | SOCKS/HTTP + WinINET system proxy |
