@@ -6,7 +6,15 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QIcon,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPixmap,
+    QRadialGradient,
+)
 
 ACCENT = "#22D3EE"
 ACCENT_DARK = "#2563EB"
@@ -160,38 +168,55 @@ def stylesheet(theme: str) -> str:
 
 
 def make_logo(size: int = 128) -> QPixmap:
+    """The Android launcher icon: navy tile, white shield, orange bolt."""
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    unit = size / 100.0
 
-    rect = QRectF(2, 2, size - 4, size - 4)
+    def point(x: float, y: float) -> QPointF:
+        return QPointF(x * unit, y * unit)
+
+    tile = QPainterPath()
+    tile.addRoundedRect(
+        QRectF(0, 0, size, size), 22 * unit, 22 * unit
+    )
+    gradient = QLinearGradient(0, 0, 0, size)
+    gradient.setColorAt(0.0, QColor("#0B192E"))
+    gradient.setColorAt(1.0, QColor("#0F263E"))
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor("#0B1220"))
-    painter.drawEllipse(rect)
+    painter.setBrush(gradient)
+    painter.drawPath(tile)
 
-    pen = QPen(QColor("#22D3EE"), max(2.0, size * 0.035))
-    painter.setPen(pen)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.drawEllipse(rect.adjusted(3, 3, -3, -3))
+    glow = QRadialGradient(
+        QPointF(74 * unit, 36 * unit), 58 * unit
+    )
+    glow.setColorAt(0.0, QColor(28, 71, 99, 110))
+    glow.setColorAt(1.0, QColor(28, 71, 99, 0))
+    painter.setBrush(glow)
+    painter.drawPath(tile)
+
+    shield = QPainterPath()
+    shield.moveTo(point(50, 18.8))
+    shield.lineTo(point(72.5, 30.8))
+    shield.lineTo(point(72.5, 57.0))
+    shield.lineTo(point(50, 82.0))
+    shield.lineTo(point(27.5, 57.0))
+    shield.lineTo(point(27.5, 30.8))
+    shield.closeSubpath()
+    painter.setBrush(QColor("#FFFFFF"))
+    painter.drawPath(shield)
 
     bolt = QPainterPath()
-    unit = size / 100.0
-    bolt.moveTo(QPointF(58 * unit, 16 * unit))
-    bolt.lineTo(QPointF(34 * unit, 55 * unit))
-    bolt.lineTo(QPointF(49 * unit, 55 * unit))
-    bolt.lineTo(QPointF(42 * unit, 84 * unit))
-    bolt.lineTo(QPointF(68 * unit, 44 * unit))
-    bolt.lineTo(QPointF(52 * unit, 44 * unit))
+    bolt.moveTo(point(55.7, 31.2))
+    bolt.lineTo(point(40.6, 55.0))
+    bolt.lineTo(point(49.5, 55.0))
+    bolt.lineTo(point(44.3, 70.6))
+    bolt.lineTo(point(60.4, 46.4))
+    bolt.lineTo(point(50.4, 46.4))
     bolt.closeSubpath()
-
-    gradient_start = QColor("#22D3EE")
-    gradient_end = QColor("#2563EB")
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(gradient_start)
-    painter.drawPath(bolt)
-    painter.setBrush(gradient_end)
-    painter.setOpacity(0.55)
+    painter.setBrush(QColor("#F5A623"))
     painter.drawPath(bolt)
     painter.end()
     return pixmap

@@ -77,6 +77,16 @@ def _http_inbound(port: int) -> dict[str, Any]:
     }
 
 
+def _api_inbound(port: int) -> dict[str, Any]:
+    return {
+        "tag": "api",
+        "listen": "127.0.0.1",
+        "port": port,
+        "protocol": "dokodemo-door",
+        "settings": {"address": "127.0.0.1"},
+    }
+
+
 def _direct_outbound() -> dict[str, Any]:
     return {
         "protocol": "freedom",
@@ -90,7 +100,10 @@ def _block_outbound() -> dict[str, Any]:
 
 
 def build_config(
-    link: str, socks_port: int = SOCKS_PORT, http_port: int = HTTP_PORT
+    link: str,
+    socks_port: int = SOCKS_PORT,
+    http_port: int = HTTP_PORT,
+    api_port: Optional[int] = None,
 ) -> dict[str, Any]:
     outbound = parse_outbound(link)
     outbound["tag"] = "proxy"
@@ -105,7 +118,7 @@ def build_config(
     if 1 <= http_port <= 65535:
         inbounds.append(_http_inbound(http_port))
 
-    return {
+    config: dict[str, Any] = {
         "log": {"access": "", "error": "", "loglevel": "warning"},
         "inbounds": inbounds,
         "outbounds": [outbound, _direct_outbound(), _block_outbound()],
@@ -118,6 +131,18 @@ def build_config(
             ],
         },
     }
+
+    if api_port and 1 <= api_port <= 65535:
+        config["stats"] = {}
+        config["api"] = {"tag": "api", "services": ["StatsService"]}
+        config["policy"] = {
+            "system": {"statsInboundUplink": True, "statsInboundDownlink": True}
+        }
+        inbounds.append(_api_inbound(api_port))
+        config["routing"]["rules"].insert(
+            0, {"type": "field", "inboundTag": ["api"], "outboundTag": "api"}
+        )
+    return config
 
 
 def build_delay_probe_config(

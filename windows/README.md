@@ -5,8 +5,9 @@ A Windows client for [SchnellVPN](../README.md), built with **Python + PySide6**
 sense on a desktop: subscriptions, real latency measurement, verified data flow and a
 system proxy.
 
-> Status: early beta (0.1.0). Connection, system proxy, probes, profiles and the UI work. TUN
-> mode and per-app split tunneling are not implemented yet (see *Limitations*).
+> Status: beta (0.2.0). Connection, system proxy, probes, profiles, subscription refresh,
+> in-app updates and the live speed chart work. TUN mode and per-app split tunneling are not
+> implemented yet (see *Limitations*).
 
 ## Features
 
@@ -14,6 +15,13 @@ system proxy.
   Trojan, Shadowsocks (no plugins).
 - **Subscriptions**: plain link lists, Base64 lists and v2rayN-style JSON; direct links and
   ready-made JSON outbounds are accepted too. Local configs (`127.0.0.1`) are supported.
+  A **refresh** button re-fetches every stored subscription, keeps manual links, and leaves
+  the old servers of a failed subscription in place.
+- **Live speed chart**: download and upload are sampled once per second from Xray's
+  `StatsService` and plotted for the last minute.
+- **In-app updates**: the header button checks GitHub Releases for the newest Windows
+  build, verifies the asset's SHA-256 from its digest, and swaps the running exe through a
+  short-lived helper. Running from source opens the release page instead.
 - **Real delay** for every config: a temporary Xray core exposes one SOCKS inbound per
   config and a real HTTP request is timed through it. Local configs are skipped.
 - **"Connected" means data flows**: after the core starts, a real request must pass
@@ -24,6 +32,8 @@ system proxy.
 - **System proxy** (WinINET) set on connect and restored on disconnect, including after a
   crash (a restore point is written before touching the registry).
 - **Profiles**: independent server sets and selected servers per profile.
+- **About and support**: version, engine, developer and links to the Telegram channel
+  ([t.me/SchnellVPN](https://t.me/SchnellVPN)) and the repository.
 - **Languages**: فارسی (RTL), English, Deutsch. Dark and light themes.
 - **Tray icon**, logs viewer and a packaged single-file executable in releases.
 
@@ -43,9 +53,11 @@ apps ──► WinINET system proxy ──► HTTP 127.0.0.1:10809 ┐
 | `schnellvpn/core/netprobe.py` | SOCKS5 data-flow probe, TCP/TLS ping, port helpers |
 | `schnellvpn/core/runner.py` | `xray.exe` lifecycle and logs |
 | `schnellvpn/core/delay.py` | temporary multi-inbound core for real delay |
+| `schnellvpn/core/speedstats.py` | live throughput from the StatsService API |
+| `schnellvpn/core/updater.py` | release check, verified download and exe self-replace |
 | `schnellvpn/core/sysproxy.py` | WinINET proxy with crash-safe restore |
 | `schnellvpn/core/store.py` | profiles, servers and settings |
-| `schnellvpn/ui/` | window, dialogs, theme, translations |
+| `schnellvpn/ui/` | window, dialogs, speed chart, theme, translations |
 
 The core is pure Python and unit-tested without Qt; the UI layer never talks to the network
 directly.
@@ -98,6 +110,10 @@ Android client; protect the profile and avoid pasting real links into bug report
   administrator install.
 - No per-app split tunneling on Windows yet. Workaround: Xray routing rules for domains.
 - No QR-camera import (paste the link instead) and no auto-start at login yet.
+- In-app updating replaces the executable in place, so it only self-installs from the
+  packaged `SchnellVPN.exe`; running from source opens the release page instead.
+- The live chart and its counters need the bundled Xray 26.x StatsService; a custom core
+  without it still connects, but the chart stays empty.
 - Xray 26.x refuses VLESS/Trojan links without TLS/Reality when the server address is a
   public IP. The app says so on connect, and the real-delay probe skips only that config
   instead of losing the delay of every server.

@@ -224,6 +224,22 @@ def can_connect(port: int, host: str = "127.0.0.1", timeout: float = 0.25) -> bo
         return False
 
 
+def free_port(preferred: int, attempts: int = 20) -> Optional[int]:
+    """First free port at or above `preferred` that can be bound on loopback."""
+    for port in range(preferred, preferred + attempts):
+        if port > 65535:
+            break
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind(("127.0.0.1", port))
+            return port
+        except OSError:
+            continue
+        finally:
+            sock.close()
+    return None
+
+
 def free_base_port(count: int, attempts: int = 20) -> Optional[int]:
     for candidate in range(attempts):
         base = 22000 + candidate * 1000

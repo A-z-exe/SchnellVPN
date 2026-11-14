@@ -7,7 +7,7 @@ from typing import Optional
 
 from .config import HTTP_PORT, SOCKS_PORT, build_config
 from .links import LinkError
-from .netprobe import internet_available, probe_with_latency
+from .netprobe import free_port, internet_available, probe_with_latency
 from .runner import XrayError, XrayProcess
 from .sysproxy import SystemProxy, restore_stale
 
@@ -24,6 +24,11 @@ class TunnelClient:
         self.runner = XrayProcess(data_dir=data_dir)
         self.proxy = SystemProxy(SOCKS_PORT + 1, data_dir=data_dir)
         self.connected = False
+        self.stats_port: Optional[int] = None
+
+    @property
+    def stats_server(self) -> str:
+        return f"127.0.0.1:{self.stats_port}" if self.stats_port else ""
 
     def connect(
         self,
@@ -38,8 +43,9 @@ class TunnelClient:
         if not internet_available():
             raise TunnelError("no_internet")
 
+        api_port = free_port(socks_port + 2)
         try:
-            config = build_config(link, socks_port, http_port)
+            config = build_config(link, socks_port, http_port, api_port)
         except LinkError as exc:
             raise TunnelError("invalid_url", str(exc)) from exc
 
@@ -58,6 +64,7 @@ class TunnelClient:
             self.runner.stop()
             raise TunnelError("probe_failed", detail)
 
+        self.stats_port = api_port
         self.proxy.port = http_port
         if use_system_proxy:
             self.proxy.enable()
@@ -65,6 +72,7 @@ class TunnelClient:
         return latency
 
     def disconnect(self) -> None:
+        self.stats_port = None
         try:
             self.proxy.disable()
         finally:

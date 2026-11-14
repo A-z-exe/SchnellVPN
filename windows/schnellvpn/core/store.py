@@ -86,14 +86,19 @@ class Store:
             self.current_profile_id = self.profiles[0].id
         self.save()
 
-    def add_servers(self, servers: list[VpnServer], subscription_url: Optional[str] = None) -> int:
+    def add_servers(
+        self,
+        servers: list[VpnServer],
+        subscription_urls: Optional[list[str]] = None,
+    ) -> int:
         profile = self.profile
         start = profile.next_server_id()
         for offset, server in enumerate(servers):
             server.id = start + offset
             profile.servers.append(server)
-        if subscription_url and subscription_url not in profile.subscription_urls:
-            profile.subscription_urls.append(subscription_url)
+        for url in subscription_urls or []:
+            if url and url not in profile.subscription_urls:
+                profile.subscription_urls.append(url)
         if profile.selected_server_id == 0 and profile.servers:
             profile.selected_server_id = profile.servers[0].id
         self.save()

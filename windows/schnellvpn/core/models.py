@@ -12,6 +12,7 @@ class VpnServer:
     link: str
     ping: Optional[int] = None
     icon: str = "\u25CF"
+    source: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -21,6 +22,7 @@ class VpnServer:
             "link": self.link,
             "ping": self.ping,
             "icon": self.icon,
+            "source": self.source,
         }
 
     @classmethod
@@ -32,6 +34,7 @@ class VpnServer:
             link=str(data.get("link", "")),
             ping=data.get("ping"),
             icon=str(data.get("icon", "\u25CF")),
+            source=str(data.get("source", "")),
         )
 
 

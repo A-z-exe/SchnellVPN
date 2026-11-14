@@ -73,3 +73,29 @@ def test_main_config_accepts_plain_vless_for_private_and_domain_hosts():
     for link in (PLAIN_PRIVATE, PLAIN_DOMAIN):
         config = build_config(link)
         assert config["outbounds"][0]["protocol"] == "vless"
+
+
+def test_main_config_has_no_stats_api_by_default():
+    config = build_config(VLESS, 10808, 10809)
+    assert "stats" not in config
+    assert "api" not in config
+    assert [inbound["tag"] for inbound in config["inbounds"]] == ["socks", "http"]
+
+
+def test_main_config_enables_stats_api_on_requested_port():
+    config = build_config(VLESS, 10808, 10809, api_port=10810)
+    assert config["stats"] == {}
+    assert config["api"] == {"tag": "api", "services": ["StatsService"]}
+    assert config["policy"]["system"] == {
+        "statsInboundUplink": True,
+        "statsInboundDownlink": True,
+    }
+    api_inbound = config["inbounds"][-1]
+    assert api_inbound["tag"] == "api"
+    assert api_inbound["port"] == 10810
+    assert api_inbound["protocol"] == "dokodemo-door"
+    assert config["routing"]["rules"][0] == {
+        "type": "field",
+        "inboundTag": ["api"],
+        "outboundTag": "api",
+    }

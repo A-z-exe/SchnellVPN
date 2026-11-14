@@ -2,7 +2,7 @@ name: Windows
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*-windows*"]
   workflow_dispatch:
 
 permissions:
@@ -60,6 +60,18 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: true
+          body: |
+            **SchnellVPN for Windows — ${{ github.ref_name }}**
+
+            Single-file Windows x64 build (Python + PySide6, bundled Xray-core).
+            Download `SchnellVPN.exe`, run it, and import a subscription or link.
+            The app checks this same release feed for updates.
+
+            Android (stable) is released beside it:
+            https://github.com/A-z-exe/SchnellVPN/releases/latest
+
+            This is a pre-release, so the Android release stays the "Latest" download.
           files: |
             windows/dist/SchnellVPN.exe
             windows/dist/SHA256SUMS.txt

@@ -272,6 +272,7 @@ class AboutDialog(BaseDialog):
     def __init__(self, lang: str, version: str, parent: Optional[QWidget] = None):
         super().__init__(lang, parent)
         self.setWindowTitle(self.tr_("about"))
+        self.setMinimumWidth(480)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 18)
         layout.setSpacing(8)
@@ -284,14 +285,36 @@ class AboutDialog(BaseDialog):
         subtitle.setObjectName("subtitle")
         layout.addWidget(subtitle)
 
-        body = QLabel(
-            "Xray-core client for Windows.<br>"
-            "VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan, Shadowsocks.<br><br>"
-            '<a href="https://github.com/A-z-exe/SchnellVPN">github.com/A-z-exe/SchnellVPN</a>'
-        )
-        body.setOpenExternalLinks(True)
+        body = QLabel(self.tr_("about_body"))
         body.setWordWrap(True)
         layout.addWidget(body)
+
+        layout.addSpacing(6)
+        engine = QLabel(f"{self.tr_('engine')}: Xray-core")
+        engine.setStyleSheet("color: #7C8CA2; font-size: 11.5px;")
+        engine.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        layout.addWidget(engine)
+
+        developer = QLabel(
+            f'{self.tr_("developer")}: '
+            '<a href="https://github.com/A-z-exe">A-z-exe (Amirhosseinzarei)</a>'
+        )
+        developer.setOpenExternalLinks(True)
+        layout.addWidget(developer)
+
+        support = QLabel(
+            f'{self.tr_("support")}: '
+            '<a href="https://t.me/SchnellVPN">t.me/SchnellVPN</a>'
+        )
+        support.setOpenExternalLinks(True)
+        layout.addWidget(support)
+
+        repository = QLabel(
+            '<a href="https://github.com/A-z-exe/SchnellVPN">'
+            "github.com/A-z-exe/SchnellVPN</a>"
+        )
+        repository.setOpenExternalLinks(True)
+        layout.addWidget(repository)
 
         layout.addStretch(1)
         box = QDialogButtonBox()

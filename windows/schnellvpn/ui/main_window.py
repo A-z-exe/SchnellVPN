@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import threading
 import time
 from collections import deque
@@ -9,8 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QGuiApplication
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -33,7 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
-from ..core import subscription
+from ..core import speedstats, subscription, updater
 from ..core.client import TunnelClient
 from ..core.delay import measure_delays
 from ..core.models import VpnServer
@@ -48,6 +49,7 @@ from .dialogs import (
     SettingsDialog,
 )
 from .i18n import RTL_LANGS, t
+from .speedchart import SpeedChart
 from .theme import ACCENT, DANGER, SUCCESS, WARN, app_icon, stylesheet
 
 STATE_IDLE = "idle"
@@ -56,6 +58,7 @@ STATE_CONNECTED = "connected"
 STATE_DISCONNECTING = "disconnecting"
 
 LANG_NAMES = {"fa": "فارسی", "en": "English", "de": "Deutsch"}
+CHANNEL_URL = "https://t.me/SchnellVPN"
 
 
 class Task(QObject):
@@ -98,6 +101,11 @@ class MainWindow(QMainWindow):
         self._tray_hint_shown = False
         self._tasks: list[Task] = []
         self._events: deque[str] = deque(maxlen=400)
+        self._speed_prev: Optional[tuple[int, int]] = None
+        self._speed_prev_at: Optional[float] = None
+        self._speed_pending = False
+        self._last_rates: Optional[tuple[float, float]] = None
+        self._pending_update: Optional[updater.UpdateInfo] = None
 
         self.setWindowTitle("SchnellVPN")
         self.setWindowIcon(app_icon())
@@ -109,9 +117,11 @@ class MainWindow(QMainWindow):
         self._timers = {
             "uptime": QTimer(self),
             "monitor": QTimer(self),
+            "speed": QTimer(self),
         }
         self._timers["uptime"].timeout.connect(self._update_uptime)
         self._timers["monitor"].timeout.connect(self._monitor_tick)
+        self._timers["speed"].timeout.connect(self._speed_tick)
         self._timers["uptime"].start(1000)
 
         self._populate_profiles()
@@ -133,6 +143,7 @@ class MainWindow(QMainWindow):
 
         outer.addLayout(self._build_header())
         outer.addWidget(self._build_status_card())
+        outer.addWidget(self._build_speed_card())
         outer.addLayout(self._build_toolbar())
 
         self.section_label = QLabel()
@@ -162,6 +173,8 @@ class MainWindow(QMainWindow):
         self.empty_label = QLabel()
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setObjectName("hint")
+        self.empty_label.setTextFormat(Qt.TextFormat.RichText)
+        self.empty_label.setOpenExternalLinks(True)
         outer.addWidget(self.empty_label)
 
         outer.addLayout(self._build_footer())
@@ -214,6 +227,11 @@ class MainWindow(QMainWindow):
         self.theme_button.clicked.connect(self._toggle_theme)
         row.addWidget(self.theme_button)
 
+        self.update_button = QToolButton()
+        self.update_button.setText("\u2b07")
+        self.update_button.clicked.connect(self._check_update)
+        row.addWidget(self.update_button)
+
         self.settings_button = QToolButton()
         self.settings_button.setText("\u2261")
         self.settings_button.clicked.connect(self._open_settings)
@@ -256,18 +274,57 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.hint_label)
         return card
 
+    def _build_speed_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 12, 16, 10)
+        layout.setSpacing(4)
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        self.speed_title = QLabel()
+        self.speed_title.setObjectName("subtitle")
+        self.speed_down_label = QLabel("\u2014")
+        self.speed_down_label.setObjectName("chip")
+        self.speed_up_label = QLabel("\u2014")
+        self.speed_up_label.setObjectName("chip")
+        top.addWidget(self.speed_title)
+        top.addStretch(1)
+        top.addWidget(self.speed_down_label)
+        top.addWidget(self.speed_up_label)
+        layout.addLayout(top)
+
+        self.speed_chart = SpeedChart()
+        self.speed_chart.set_theme(self.store.get_setting("theme", "dark"))
+        self.speed_chart.setVisible(False)
+        layout.addWidget(self.speed_chart)
+
+        self.speed_idle_label = QLabel()
+        self.speed_idle_label.setObjectName("hint")
+        self.speed_idle_label.setWordWrap(True)
+        layout.addWidget(self.speed_idle_label)
+        return card
+
     def _build_toolbar(self) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setSpacing(8)
         self.add_sub_button = QPushButton()
         self.add_sub_button.clicked.connect(self._import_servers)
+        self.refresh_button = QPushButton()
+        self.refresh_button.clicked.connect(self._refresh_subscriptions)
         self.ping_button = QPushButton()
         self.ping_button.clicked.connect(self._ping_all)
         self.delay_button = QPushButton()
         self.delay_button.clicked.connect(self._test_delays)
         self.logs_button = QPushButton()
         self.logs_button.clicked.connect(self._open_logs)
-        for button in (self.add_sub_button, self.ping_button, self.delay_button):
+        for button in (
+            self.add_sub_button,
+            self.refresh_button,
+            self.ping_button,
+            self.delay_button,
+        ):
             row.addWidget(button)
         row.addStretch(1)
         row.addWidget(self.logs_button)
@@ -322,12 +379,29 @@ class MainWindow(QMainWindow):
         self.subtitle_label.setText(t(self.lang, "tagline"))
         self.section_label.setText(t(self.lang, "servers").upper())
         self.add_sub_button.setText(f"+  {t(self.lang, 'add_subscription')}")
+        self.refresh_button.setText(t(self.lang, "refresh_subscription"))
+        self.refresh_button.setToolTip(t(self.lang, "refresh_subscription_hint"))
         self.ping_button.setText(t(self.lang, "test_ping"))
         self.delay_button.setText(t(self.lang, "test_delay"))
         self.logs_button.setText(t(self.lang, "logs"))
         self.settings_button.setToolTip(t(self.lang, "settings"))
         self.theme_button.setToolTip(t(self.lang, "theme"))
         self.add_profile_button.setToolTip(t(self.lang, "new_profile"))
+        self.update_button.setToolTip(f"{t(self.lang, 'check_update')} \u00b7 v{__version__}")
+        self.speed_title.setText(t(self.lang, "live_speed").upper())
+        self.speed_down_label.setToolTip(t(self.lang, "download"))
+        self.speed_up_label.setToolTip(t(self.lang, "upload"))
+        self.speed_idle_label.setText(t(self.lang, "live_speed_idle"))
+        if self._last_rates:
+            self.speed_down_label.setText(
+                f"{t(self.lang, 'download')}: {speedstats.format_rate(self._last_rates[0])}"
+            )
+            self.speed_up_label.setText(
+                f"{t(self.lang, 'upload')}: {speedstats.format_rate(self._last_rates[1])}"
+            )
+        else:
+            self.speed_down_label.setText(f"{t(self.lang, 'download')}: \u2014")
+            self.speed_up_label.setText(f"{t(self.lang, 'upload')}: \u2014")
         self.table.setHorizontalHeaderLabels(
             [
                 t(self.lang, "name"),
@@ -338,7 +412,10 @@ class MainWindow(QMainWindow):
         )
         self._align_headers()
         self.empty_label.setText(
-            f"{t(self.lang, 'servers_empty')}\n{t(self.lang, 'servers_empty_hint')}"
+            f"{html.escape(t(self.lang, 'servers_empty'))}<br>"
+            f"{html.escape(t(self.lang, 'servers_empty_hint'))}<br><br>"
+            f'<a href="{CHANNEL_URL}" style="color: #F5A623;">'
+            f"{html.escape(t(self.lang, 'channel_hint'))}</a>"
         )
         self.tray_show_action.setText(t(self.lang, "show"))
         self.tray_about_action.setText(t(self.lang, "about"))
@@ -377,6 +454,8 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app:
             app.setStyleSheet(stylesheet(self.store.get_setting("theme", "dark")))
+        if hasattr(self, "speed_chart"):
+            self.speed_chart.set_theme(self.store.get_setting("theme", "dark"))
 
     # ------------------------------------------------------------------ profiles
 
@@ -584,34 +663,123 @@ class MainWindow(QMainWindow):
         text = dialog.text().strip()
         self._set_hint(t(self.lang, "importing"))
 
-        def work() -> list[VpnServer]:
+        def work() -> tuple[list[VpnServer], list[str]]:
             servers: list[VpnServer] = []
+            urls: list[str] = []
             for line in text.splitlines():
                 line = line.strip()
                 if not line:
                     continue
                 if line.lower().startswith(("http://", "https://")):
-                    servers.extend(subscription.fetch(line))
+                    fetched = subscription.fetch(line)
+                    for server in fetched:
+                        server.source = line
+                    servers.extend(fetched)
+                    if line not in urls:
+                        urls.append(line)
                 else:
                     servers.extend(subscription.parse_content(line))
             if not servers:
                 raise ValueError(t(self.lang, "import_fail"))
-            return servers
+            return servers, urls
 
         task = self._start_task(work)
-        task.ok.connect(lambda servers: self._import_done(servers, text), Qt.ConnectionType.QueuedConnection)
+        task.ok.connect(
+            lambda result: self._import_done(*result),
+            Qt.ConnectionType.QueuedConnection,
+        )
         task.err.connect(
             lambda exc: self._set_hint(f"{t(self.lang, 'import_fail')}: {exc}"),
             Qt.ConnectionType.QueuedConnection,
         )
 
-    def _import_done(self, servers: list[VpnServer], source: str) -> None:
-        lines = [line.strip() for line in source.splitlines() if line.strip()]
-        sub_url = lines[0] if len(lines) == 1 and lines[0].lower().startswith(("http://", "https://")) else None
-        count = self.store.add_servers(servers, sub_url)
+    def _import_done(self, servers: list[VpnServer], urls: list[str]) -> None:
+        count = self.store.add_servers(servers, urls)
         self._log(f"imported {count} servers")
         self._set_hint(t(self.lang, "import_ok", count=count))
         self.refresh_table()
+        self._ping_all()
+
+    def _refresh_subscriptions(self) -> None:
+        urls = list(self.store.profile.subscription_urls)
+        if not urls:
+            self._set_hint(t(self.lang, "no_subscription"))
+            return
+        self._set_hint(t(self.lang, "refreshing"))
+        self.refresh_button.setEnabled(False)
+
+        def work() -> dict[str, Optional[list[VpnServer]]]:
+            fetched: dict[str, Optional[list[VpnServer]]] = {}
+            for url in urls:
+                try:
+                    fetched[url] = subscription.fetch(url)
+                except Exception:  # noqa: BLE001 - one dead link keeps its old servers
+                    fetched[url] = None
+            return fetched
+
+        task = self._start_task(work)
+        task.ok.connect(self._refresh_done, Qt.ConnectionType.QueuedConnection)
+        task.err.connect(self._refresh_failed, Qt.ConnectionType.QueuedConnection)
+
+    def _refresh_failed(self, exc: Exception) -> None:
+        self.refresh_button.setEnabled(True)
+        self._set_hint(f"{t(self.lang, 'refresh_failed')}: {exc}")
+
+    def _refresh_done(self, fetched: dict[str, Optional[list[VpnServer]]]) -> None:
+        self.refresh_button.setEnabled(True)
+        if not any(fetched.values()):
+            self._set_hint(t(self.lang, "refresh_failed"))
+            return
+        if self.state == STATE_CONNECTED:
+            self._disconnect_async(quiet=True)
+
+        profile = self.store.profile
+        old = list(profile.servers)
+        selected_link = profile.selected_server.link if profile.selected_server else ""
+
+        merged: list[VpnServer] = []
+        seen: set[str] = set()
+        fresh: list[VpnServer] = []
+        for url, servers in fetched.items():
+            if not servers:
+                continue
+            for server in servers:
+                server.source = url
+                fresh.append(server)
+        kept = [
+            server
+            for server in old
+            if not server.source
+            or server.source not in fetched
+            or fetched[server.source] is None
+        ]
+        for server in fresh + kept:
+            if server.link in seen:
+                continue
+            seen.add(server.link)
+            merged.append(server)
+
+        if not merged:
+            self._set_hint(t(self.lang, "refresh_failed"))
+            return
+
+        for index, server in enumerate(merged, 1):
+            server.id = index
+        profile.servers = merged
+        profile.selected_server_id = next(
+            (server.id for server in merged if server.link == selected_link),
+            merged[0].id,
+        )
+        self.pings.clear()
+        self.delays.clear()
+        self.store.save()
+        self.refresh_table()
+
+        failed = sum(1 for servers in fetched.values() if servers is None)
+        self._log(f"subscription refresh: {len(merged)} servers, {failed} links failed")
+        self._set_hint(
+            t(self.lang, "refresh_done", count=len(merged), failed=failed)
+        )
         self._ping_all()
 
     # ------------------------------------------------------------------ ping / delay
@@ -657,6 +825,136 @@ class MainWindow(QMainWindow):
         self._set_hint(t(self.lang, "delay_done"))
         self._refresh_metrics()
 
+    # ------------------------------------------------------------------ speed
+
+    def _speed_tick(self) -> None:
+        if (
+            self.state != STATE_CONNECTED
+            or not self.client.stats_server
+            or self._speed_pending
+        ):
+            return
+        self._speed_pending = True
+        server = self.client.stats_server
+        task = self._start_task(lambda: speedstats.read_totals(server))
+        task.ok.connect(self._speed_sample, Qt.ConnectionType.QueuedConnection)
+        task.err.connect(
+            lambda _exc: self._speed_sample(None), Qt.ConnectionType.QueuedConnection
+        )
+
+    def _speed_sample(self, current: Optional[tuple[int, int]]) -> None:
+        self._speed_pending = False
+        now = time.monotonic()
+        if self.state != STATE_CONNECTED or current is None:
+            self._speed_prev = None
+            self._speed_prev_at = None
+            return
+        if self._speed_prev is not None and self._speed_prev_at is not None:
+            measured = speedstats.rates(
+                self._speed_prev, current, now - self._speed_prev_at
+            )
+            if measured is not None:
+                down, up = measured
+                self._last_rates = (down, up)
+                self.speed_chart.push(down, up)
+                self.speed_down_label.setText(
+                    f"{t(self.lang, 'download')}: {speedstats.format_rate(down)}"
+                )
+                self.speed_up_label.setText(
+                    f"{t(self.lang, 'upload')}: {speedstats.format_rate(up)}"
+                )
+        self._speed_prev = current
+        self._speed_prev_at = now
+
+    def _speed_reset(self) -> None:
+        self._timers["speed"].stop()
+        self._speed_prev = None
+        self._speed_prev_at = None
+        self._speed_pending = False
+        self._last_rates = None
+        self.speed_chart.clear()
+        self.speed_chart.setVisible(False)
+        self.speed_idle_label.setVisible(True)
+        self.speed_down_label.setText(f"{t(self.lang, 'download')}: \u2014")
+        self.speed_up_label.setText(f"{t(self.lang, 'upload')}: \u2014")
+
+    def _speed_start(self) -> None:
+        self.speed_chart.clear()
+        self.speed_chart.setVisible(True)
+        self.speed_idle_label.setVisible(False)
+        self._speed_prev = None
+        self._speed_prev_at = None
+        self._speed_pending = False
+        self._last_rates = None
+        self._timers["speed"].start(1000)
+
+    # ------------------------------------------------------------------ updates
+
+    def _check_update(self) -> None:
+        if not self.update_button.isEnabled():
+            return
+        self.update_button.setEnabled(False)
+        self._set_hint(t(self.lang, "checking_update"))
+        task = self._start_task(lambda: updater.check(__version__))
+        task.ok.connect(self._update_checked, Qt.ConnectionType.QueuedConnection)
+        task.err.connect(self._update_check_failed, Qt.ConnectionType.QueuedConnection)
+
+    def _update_checked(self, info: Optional[updater.UpdateInfo]) -> None:
+        self.update_button.setEnabled(True)
+        if info is None:
+            self._set_hint(t(self.lang, "up_to_date", version=__version__))
+            return
+        self._pending_update = info
+        if not updater.can_self_install():
+            self._set_hint(t(self.lang, "update_source_run", version=info.version))
+            QDesktopServices.openUrl(QUrl(updater.RELEASE_PAGE))
+            return
+        answer = QMessageBox.question(
+            self,
+            t(self.lang, "check_update"),
+            t(self.lang, "update_available", version=info.version),
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._download_update(info)
+
+    def _update_check_failed(self, exc: Exception) -> None:
+        self.update_button.setEnabled(True)
+        self._set_hint(f"{t(self.lang, 'update_failed')}: {exc}")
+
+    def _download_update(self, info: updater.UpdateInfo) -> None:
+        self.update_button.setEnabled(False)
+        self._set_hint(t(self.lang, "downloading_update", version=info.version))
+        task = self._start_task(lambda: updater.download(info))
+        task.ok.connect(self._update_downloaded, Qt.ConnectionType.QueuedConnection)
+        task.err.connect(
+            lambda exc: self._update_download_failed(exc),
+            Qt.ConnectionType.QueuedConnection,
+        )
+
+    def _update_downloaded(self, path: Path) -> None:
+        self.update_button.setEnabled(True)
+        info = self._pending_update
+        version = info.version if info else ""
+        self._set_hint(t(self.lang, "update_ready", version=version))
+        answer = QMessageBox.question(
+            self,
+            t(self.lang, "check_update"),
+            t(self.lang, "restart_for_update"),
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            updater.install(Path(path))
+        except Exception as exc:  # noqa: BLE001 - surfaced in the UI
+            self._set_hint(f"{t(self.lang, 'install_failed')}: {exc}")
+            return
+        self._log(f"installing update {version}")
+        self._quit()
+
+    def _update_download_failed(self, exc: Exception) -> None:
+        self.update_button.setEnabled(True)
+        self._set_hint(f"{t(self.lang, 'update_failed')}: {exc}")
+
     # ------------------------------------------------------------------ connect
 
     def _connect_clicked(self) -> None:
@@ -680,6 +978,7 @@ class MainWindow(QMainWindow):
 
         self._busy = True
         self._set_state(STATE_CONNECTING)
+        self._speed_reset()
         self._set_hint(t(self.lang, "connecting_to", name=server.name))
         self._log(f"connecting to {server.name} ({server.label})")
 
@@ -703,6 +1002,7 @@ class MainWindow(QMainWindow):
         self._set_hint(t(self.lang, "data_flow_ok"))
         self._refresh_metrics()
         self._start_monitor()
+        self._speed_start()
         self._update_tray()
 
     def _connect_failed(self, exc: Exception) -> None:
@@ -719,6 +1019,7 @@ class MainWindow(QMainWindow):
         else:
             text = f"{t(self.lang, 'xray_error')}: {exc}"
         self._log(f"connect failed: {text}")
+        self._speed_reset()
         self._set_hint(text)
         self._render_state()
         self._update_tray()
@@ -728,6 +1029,7 @@ class MainWindow(QMainWindow):
             return
         self._busy = True
         self._stop_monitor()
+        self._speed_reset()
         self._set_state(STATE_DISCONNECTING)
         self._log("disconnecting")
         task = self._start_task(self.client.disconnect)
@@ -746,6 +1048,7 @@ class MainWindow(QMainWindow):
         self.connected_at = None
         self.delay_chip.setVisible(False)
         self.uptime_chip.setVisible(False)
+        self._speed_reset()
         self._render_state()
         if not quiet:
             self._set_hint(t(self.lang, "disconnected_info"))
@@ -757,6 +1060,7 @@ class MainWindow(QMainWindow):
             return
         self._busy = True
         self._stop_monitor()
+        self._speed_reset()
         self._set_state(STATE_DISCONNECTING)
         task = self._start_task(self.client.disconnect)
         task.ok.connect(
@@ -991,6 +1295,7 @@ class MainWindow(QMainWindow):
     def shutdown(self) -> None:
         self._stop_monitor()
         self._timers["uptime"].stop()
+        self._timers["speed"].stop()
         try:
             if self.client.runner.running or self.client.connected:
                 self.client.disconnect()
