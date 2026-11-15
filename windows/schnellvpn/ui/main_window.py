@@ -37,6 +37,7 @@ from .. import __version__
 from ..core import speedstats, subscription, updater
 from ..core.client import TunnelClient
 from ..core.delay import measure_delays
+from ..core.links import endpoint_of
 from ..core.models import VpnServer
 from ..core.netprobe import ping_all, probe_with_latency
 from ..core.runner import XrayProcess, find_binary
@@ -51,7 +52,16 @@ from .dialogs import (
 )
 from .i18n import RTL_LANGS, t
 from .speedchart import SpeedChart
-from .theme import ACCENT, DANGER, SUCCESS, WARN, app_icon, download_icon, stylesheet
+from .theme import (
+    ACCENT,
+    DANGER,
+    SUCCESS,
+    WARN,
+    app_icon,
+    download_icon,
+    gear_icon,
+    stylesheet,
+)
 
 STATE_IDLE = "idle"
 STATE_CONNECTING = "connecting"
@@ -107,11 +117,12 @@ class MainWindow(QMainWindow):
         self._speed_pending = False
         self._last_rates: Optional[tuple[float, float]] = None
         self._pending_update: Optional[updater.UpdateInfo] = None
+        self._address_cache: dict[str, str] = {}
 
         self.setWindowTitle("SchnellVPN")
         self.setWindowIcon(app_icon())
-        self.setMinimumSize(900, 640)
-        self.resize(1000, 700)
+        self.setMinimumSize(880, 620)
+        self.resize(1060, 720)
 
         self._build_ui()
         self._build_tray()
@@ -151,18 +162,18 @@ class MainWindow(QMainWindow):
         self.section_label.setObjectName("section")
         outer.addWidget(self.section_label)
 
-        self.table = QTableWidget(0, 4)
+        self.table = QTableWidget(0, 5)
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(46)
+        self.table.verticalHeader().setDefaultSectionSize(44)
         self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for column in (1, 2, 3):
+        for column in (1, 2, 3, 4):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         header.setHighlightSections(False)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -231,44 +242,45 @@ class MainWindow(QMainWindow):
         self.update_button = QToolButton()
         self.update_button.setIconSize(QSize(18, 18))
         self.update_button.clicked.connect(self._check_update)
-        self._refresh_update_icon()
         row.addWidget(self.update_button)
 
         self.settings_button = QToolButton()
-        self.settings_button.setText("\u2261")
+        self.settings_button.setIconSize(QSize(18, 18))
         self.settings_button.clicked.connect(self._open_settings)
         row.addWidget(self.settings_button)
+        self._refresh_header_icons()
         return row
 
     def _build_status_card(self) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(8)
 
-        top = QHBoxLayout()
-        top.setSpacing(8)
+        row = QHBoxLayout()
+        row.setSpacing(8)
         self.status_dot = QLabel("\u25cf")
         self.status_dot.setStyleSheet(f"color: {ACCENT}; font-size: 13px;")
         self.status_label = QLabel()
         self.status_label.setObjectName("status")
-        top.addWidget(self.status_dot)
-        top.addWidget(self.status_label)
-        top.addStretch(1)
+        row.addWidget(self.status_dot)
+        row.addWidget(self.status_label)
         self.delay_chip = QLabel()
         self.delay_chip.setObjectName("chip")
         self.uptime_chip = QLabel()
         self.uptime_chip.setObjectName("chip")
-        top.addWidget(self.delay_chip)
-        top.addWidget(self.uptime_chip)
-        layout.addLayout(top)
+        row.addWidget(self.delay_chip)
+        row.addWidget(self.uptime_chip)
+        row.addStretch(1)
 
         self.connect_button = QPushButton()
         self.connect_button.setObjectName("primary")
-        self.connect_button.setMinimumHeight(54)
+        self.connect_button.setFixedWidth(260)
+        self.connect_button.setMinimumHeight(50)
         self.connect_button.clicked.connect(self._connect_clicked)
-        layout.addWidget(self.connect_button)
+        row.addWidget(self.connect_button)
+        layout.addLayout(row)
 
         self.hint_label = QLabel()
         self.hint_label.setObjectName("hint")
@@ -426,6 +438,7 @@ class MainWindow(QMainWindow):
         self.table.setHorizontalHeaderLabels(
             [
                 t(self.lang, "name"),
+                t(self.lang, "address"),
                 t(self.lang, "type"),
                 t(self.lang, "ping"),
                 t(self.lang, "delay"),
@@ -450,13 +463,13 @@ class MainWindow(QMainWindow):
 
     def _align_headers(self) -> None:
         # AlignLeft is leading; Qt mirrors it automatically in RTL layouts.
-        for column in range(4):
+        for column in range(5):
             item = self.table.horizontalHeaderItem(column)
             if item is None:
                 continue
             alignment = (
                 Qt.AlignmentFlag.AlignCenter
-                if column in (2, 3)
+                if column in (2, 3, 4)
                 else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
             item.setTextAlignment(alignment)
@@ -464,14 +477,15 @@ class MainWindow(QMainWindow):
     def _update_theme_button(self) -> None:
         theme = self.store.get_setting("theme", "dark")
         self.theme_button.setText("\u263c" if theme == "dark" else "\u263e")
-        self._refresh_update_icon()
+        self._refresh_header_icons()
 
-    def _refresh_update_icon(self) -> None:
-        if not hasattr(self, "update_button"):
-            return
+    def _refresh_header_icons(self) -> None:
         dark = self.store.get_setting("theme", "dark") == "dark"
         color = QColor("#E6EDF3") if dark else QColor("#0F172A")
-        self.update_button.setIcon(QIcon(download_icon(18, color)))
+        if hasattr(self, "update_button"):
+            self.update_button.setIcon(QIcon(download_icon(18, color)))
+        if hasattr(self, "settings_button"):
+            self.settings_button.setIcon(QIcon(gear_icon(18, color)))
 
     def _toggle_theme(self) -> None:
         theme = "light" if self.store.get_setting("theme", "dark") == "dark" else "dark"
@@ -553,6 +567,11 @@ class MainWindow(QMainWindow):
             name_item.setFlags(
                 Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
             )
+            address_item = QTableWidgetItem(self._address_of(server.link))
+            address_item.setForeground(QColor("#7C8CA2"))
+            address_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+            )
             type_item = QTableWidgetItem(server.label)
             type_item.setForeground(QColor("#8496AC"))
             ping_item = QTableWidgetItem(self._fmt_ms(self.pings.get(server.id)))
@@ -561,7 +580,8 @@ class MainWindow(QMainWindow):
             delay_item = QTableWidgetItem(self._fmt_ms(self.delays.get(server.id)))
             delay_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             delay_item.setForeground(self._ms_color(self.delays.get(server.id)))
-            for column, item in enumerate((name_item, type_item, ping_item, delay_item)):
+            cells = (name_item, address_item, type_item, ping_item, delay_item)
+            for column, item in enumerate(cells):
                 self.table.setItem(row, column, item)
         self.table.blockSignals(False)
 
@@ -587,6 +607,19 @@ class MainWindow(QMainWindow):
             return t(self.lang, "local")
         # U+200E keeps "142 ms" left-to-right inside the RTL table cells.
         return f"\u200e{ms} ms"
+
+    def _address_of(self, link: str) -> str:
+        cached = self._address_cache.get(link)
+        if cached is not None:
+            return cached
+        endpoint = endpoint_of(link)
+        if endpoint is None:
+            text = "\u2014"
+        else:
+            host, port = endpoint
+            text = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+        self._address_cache[link] = text
+        return text
 
     @staticmethod
     def _ms_color(ms: Optional[int]) -> QColor:
@@ -976,7 +1009,7 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
         try:
-            updater.install(Path(path))
+            updater.install(Path(path), version=version)
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI
             self._set_hint(f"{t(self.lang, 'install_failed')}: {exc}")
             return
@@ -1212,8 +1245,8 @@ class MainWindow(QMainWindow):
     def _refresh_table_metrics(self) -> None:
         profile = self.store.profile
         for row, server in enumerate(profile.servers):
-            ping_item = self.table.item(row, 2)
-            delay_item = self.table.item(row, 3)
+            ping_item = self.table.item(row, 3)
+            delay_item = self.table.item(row, 4)
             if ping_item is None or delay_item is None:
                 continue
             ping_item.setText(self._fmt_ms(self.pings.get(server.id)))
@@ -1298,7 +1331,7 @@ class MainWindow(QMainWindow):
             engine = self.client.logs(20000)
             return f"{app_lines}\n\n----- xray -----\n{engine}"
 
-        LogsDialog(self.lang, fetch, self).exec()
+        LogsDialog(self.lang, fetch, self, version=__version__).exec()
 
     def _open_about(self) -> None:
         AboutDialog(self.lang, __version__, self).exec()

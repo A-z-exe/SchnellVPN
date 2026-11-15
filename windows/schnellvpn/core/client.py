@@ -82,8 +82,8 @@ class TunnelClient:
     def probe(self, socks_port: int = SOCKS_PORT, timeout_ms: int = 4000) -> Optional[int]:
         return probe_with_latency(socks_port, timeout_ms)
 
-    def logs(self) -> str:
-        return self.runner.logs()
+    def logs(self, max_bytes: int = 20000) -> str:
+        return self.runner.logs(max_bytes)
 
     @staticmethod
     def restore_stale_proxy() -> bool:

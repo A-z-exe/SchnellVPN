@@ -149,6 +149,12 @@ def download(info: UpdateInfo, target_dir: Optional[Path] = None) -> Path:
     if info.sha256 and sha256_of(target).lower() != info.sha256.lower():
         target.unlink(missing_ok=True)
         raise RuntimeError("checksum mismatch")
+    try:
+        # A "mark of the web" makes antivirus scan the fresh exe on first start,
+        # which can race PyInstaller's temp extraction ("python312.dll missing").
+        os.remove(str(target) + ":Zone.Identifier")
+    except OSError:
+        pass
     return target
 
 
@@ -156,24 +162,75 @@ def can_self_install() -> bool:
     return sys.platform == "win32" and bool(getattr(sys, "frozen", False))
 
 
-def install(update_path: Path, current_exe: Optional[Path] = None) -> None:
-    """Spawn a helper that swaps the running exe once this process exits."""
+def boot_marker(version: str) -> Path:
+    """File the freshly started build touches once Qt is up."""
+    return Path(tempfile.gettempdir()) / f"schnellvpn-boot-{version or 'any'}.ok"
+
+
+def install(
+    update_path: Path,
+    current_exe: Optional[Path] = None,
+    version: str = "",
+) -> None:
+    """Swap the running exe from a helper script and restart it.
+
+    The helper renames the running exe away first, waits for the new build's
+    boot marker, and restores the previous exe if the new one never comes up.
+    """
     target = Path(current_exe or sys.executable).resolve()
     update_path = Path(update_path).resolve()
     if not update_path.is_file():
         raise RuntimeError("downloaded update is missing")
 
+    backup = target.with_name(target.name + ".old")
+    marker = boot_marker(version)
+    log_path = app_data_dir() / "updates" / "install.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     script = Path(tempfile.gettempdir()) / f"schnellvpn-update-{os.getpid()}.cmd"
+
+    def q(path: Path) -> str:
+        return str(path).replace('"', '""')
+
     script.write_text(
         "@echo off\r\n"
         "setlocal\r\n"
+        f'echo [%date% %time%] installing {version} >> "{q(log_path)}"\r\n'
+        f'if exist "{q(marker)}" del "{q(marker)}" >nul 2>&1\r\n'
+        f'if exist "{q(backup)}" del "{q(backup)}" >nul 2>&1\r\n'
         "for /L %%i in (1,1,120) do (\r\n"
-        f'  move /Y "{update_path}" "{target}" >nul 2>&1 && goto run\r\n'
-        "  timeout /t 1 /nobreak >nul\r\n"
+        f'  ren "{q(target)}" "{target.name}.old" >nul 2>&1 && goto swapped\r\n'
+        "  ping -n 2 127.0.0.1 >nul\r\n"
         ")\r\n"
+        f'echo old exe stayed locked >> "{q(log_path)}"\r\n'
         "goto end\r\n"
-        ":run\r\n"
-        f'start "" "{target}"\r\n'
+        ":swapped\r\n"
+        f'move /Y "{q(update_path)}" "{q(target)}" >nul 2>&1\r\n'
+        "if errorlevel 1 goto restore\r\n"
+        "ping -n 3 127.0.0.1 >nul\r\n"
+        "for /L %%i in (1,1,3) do (\r\n"
+        f'  start "" "{q(target)}"\r\n'
+        "  for /L %%j in (1,1,12) do (\r\n"
+        f'    if exist "{q(marker)}" goto ok\r\n'
+        "    ping -n 2 127.0.0.1 >nul\r\n"
+        "  )\r\n"
+        f'  echo launch attempt %%i did not reach the app >> "{q(log_path)}"\r\n'
+        ")\r\n"
+        ":restore\r\n"
+        f'echo new build failed to start; restoring backup >> "{q(log_path)}"\r\n'
+        f'taskkill /F /IM "{target.name}" >nul 2>&1\r\n'
+        "ping -n 2 127.0.0.1 >nul\r\n"
+        f'if exist "{q(target)}" del "{q(target)}" >nul 2>&1\r\n'
+        f'if exist "{q(backup)}" ren "{q(backup)}" "{target.name}" >nul 2>&1\r\n'
+        f'if exist "{q(target)}" start "" "{q(target)}"\r\n'
+        "goto end\r\n"
+        ":ok\r\n"
+        "for /L %%i in (1,1,5) do (\r\n"
+        f'  if not exist "{q(backup)}" goto cleaned\r\n'
+        f'  del "{q(backup)}" >nul 2>&1\r\n'
+        "  ping -n 2 127.0.0.1 >nul\r\n"
+        ")\r\n"
+        ":cleaned\r\n"
+        f'echo [%date% %time%] update ok >> "{q(log_path)}"\r\n'
         ":end\r\n"
         'del "%~f0" >nul 2>&1\r\n',
         encoding="ascii",

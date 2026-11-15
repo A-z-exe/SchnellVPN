@@ -12,11 +12,11 @@ same engine, link formats and honesty checks (no "connected" before data really 
 
 | | 🤖 **Android** (stable) | 🪟 **Windows** (beta) |
 | --- | --- | --- |
-| Version | **1.4.3** | **0.2.3** |
+| Version | **1.4.3** | **0.2.4** |
 | Built with | Kotlin + Jetpack Compose | Python + PySide6 |
 | Engine | AndroidLibXrayLite | Xray-core 26.x (`xray.exe`, bundled) |
 | Tunnel | TUN (VpnService) + hev-socks5-tunnel | SOCKS/HTTP + WinINET system proxy |
-| Extras | QR import, split tunneling, per-app auto-connect, hotspot sharing | subscription refresh, in-app update, live speed chart, real delay, 20 s data-flow monitor, profiles, tray, fa/en/de |
+| Extras | QR import, split tunneling, per-app auto-connect, hotspot sharing | subscription refresh, in-app update with rollback, connection log, bug-report email, live speed chart, real delay, 20 s data-flow monitor, profiles, tray, fa/en/de |
 | Download | [Latest APK](https://github.com/A-z-exe/SchnellVPN/releases/latest) | [Windows beta release](https://github.com/A-z-exe/SchnellVPN/releases) |
 
 Both platforms are listed together on the [Releases page](https://github.com/A-z-exe/SchnellVPN/releases):

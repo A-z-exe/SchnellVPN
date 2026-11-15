@@ -5,7 +5,7 @@ A Windows client for [SchnellVPN](../README.md), built with **Python + PySide6**
 sense on a desktop: subscriptions, real latency measurement, verified data flow and a
 system proxy.
 
-> Status: beta (0.2.3). Connection, system proxy, probes, profiles, subscription refresh,
+> Status: beta (0.2.4). Connection, system proxy, probes, profiles, subscription refresh,
 > in-app updates and the live speed chart work. TUN mode and per-app split tunneling are not
 > implemented yet (see *Limitations*).
 
@@ -21,7 +21,12 @@ system proxy.
   `StatsService` and plotted for the last minute.
 - **In-app updates**: the header button checks GitHub Releases for the newest Windows
   build, verifies the asset's SHA-256 from its digest, and swaps the running exe through a
-  short-lived helper. Running from source opens the release page instead.
+  short-lived helper. The helper waits for the new build's boot marker, retries the launch
+  and restores the previous exe if it never comes up (log: `updates/install.log`). Running
+  from source opens the release page instead.
+- **Connection log and bug reports**: the logs dialog lists every accepted connection
+  (time, network, destination, source) the way v2rayN does, next to the raw app/xray logs,
+  and can email a prepared report to the developer or copy it to the clipboard.
 - **Real delay** for every config: a temporary Xray core exposes one SOCKS inbound per
   config and a real HTTP request is timed through it. Local configs are skipped.
 - **"Connected" means data flows**: after the core starts, a real request must pass

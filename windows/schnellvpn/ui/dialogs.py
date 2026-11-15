@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import io
+import platform
+import re
 from typing import Callable, Optional
 
 import segno
-from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QIntValidator, QPixmap
+from PySide6.QtCore import Qt, QTimer, QUrl, QUrlQuery
+from PySide6.QtGui import QColor, QDesktopServices, QIntValidator, QPixmap
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -16,10 +19,14 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -28,6 +35,18 @@ from ..core.links import LinkError, parse_outbound
 from ..core.models import VpnServer
 from ..core.runner import app_data_dir, find_binary
 from .i18n import LANGS, t
+
+REPORT_EMAIL = "amirHosseinzarei.org@gmail.com"
+ACCEPT_RE = re.compile(
+    r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\S*\s+from\s+(\S+)\s+"
+    r"accepted\s+(tcp|udp):(\S+)"
+)
+MAX_CONNECTIONS = 500
+
+
+def link_style() -> str:
+    """Mid-blue that keeps readable contrast on both themes."""
+    return 'style="color: #3B82F6;"'
 
 
 class BaseDialog(QDialog):
@@ -147,24 +166,28 @@ class SettingsDialog(BaseDialog):
     ):
         super().__init__(lang, parent)
         self.settings = dict(settings)
+        self.version = version
         self.setWindowTitle(self.tr_("settings"))
-        self.setMinimumWidth(460)
+        self.setMinimumWidth(500)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 16)
         layout.setSpacing(12)
 
-        if on_check_updates is not None:
-            update_row = QHBoxLayout()
-            version_label = QLabel(self.tr_("version", version=version))
-            version_label.setStyleSheet("color: #7C8CA2; font-size: 11.5px;")
-            update_row.addWidget(version_label)
-            update_row.addStretch(1)
-            check_update = QPushButton(self.tr_("check_update"))
-            check_update.clicked.connect(on_check_updates)
-            update_row.addWidget(check_update)
-            layout.addLayout(update_row)
+        tabs = QTabWidget()
+        self.tabs = tabs
+        tabs.addTab(self._build_general(), self.tr_("general"))
+        tabs.addTab(self._build_about(on_check_updates), self.tr_("about"))
+        layout.addWidget(tabs)
+        layout.addWidget(_buttons(self, lang))
 
+    def _build_general(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        settings = self.settings
         form = QFormLayout()
         form.setSpacing(10)
 
@@ -224,8 +247,69 @@ class SettingsDialog(BaseDialog):
         folder_row.addWidget(open_folder)
         folder_row.addStretch(1)
         layout.addLayout(folder_row)
+        layout.addStretch(1)
+        return page
 
-        layout.addWidget(_buttons(self, lang))
+    def _build_about(
+        self, on_check_updates: Optional[Callable[[], None]]
+    ) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(8)
+
+        update_row = QHBoxLayout()
+        version_label = QLabel(self.tr_("version", version=self.version))
+        version_label.setStyleSheet("color: #7C8CA2; font-size: 11.5px;")
+        update_row.addWidget(version_label)
+        update_row.addStretch(1)
+        check_update = QPushButton(self.tr_("check_update"))
+        if on_check_updates is not None:
+            check_update.clicked.connect(on_check_updates)
+        else:
+            check_update.setEnabled(False)
+        update_row.addWidget(check_update)
+        layout.addLayout(update_row)
+
+        body = QLabel(self.tr_("about_body"))
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        engine = QLabel(f"{self.tr_('engine')}: Xray-core")
+        engine.setStyleSheet("color: #7C8CA2; font-size: 11.5px;")
+        engine.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        layout.addWidget(engine)
+
+        developer = QLabel(
+            f'{self.tr_("developer")}: '
+            f'<a {link_style()} href="https://github.com/A-z-exe">'
+            "A-z-exe (Amirhosseinzarei)</a>"
+        )
+        developer.setOpenExternalLinks(True)
+        layout.addWidget(developer)
+
+        support = QLabel(
+            f'{self.tr_("support")}: '
+            f'<a {link_style()} href="https://t.me/SchnellVPN">t.me/SchnellVPN</a>'
+        )
+        support.setOpenExternalLinks(True)
+        layout.addWidget(support)
+
+        email = QLabel(
+            f'<a {link_style()} href="mailto:{REPORT_EMAIL}">{REPORT_EMAIL}</a>'
+        )
+        email.setOpenExternalLinks(True)
+        email.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        layout.addWidget(email)
+
+        repository = QLabel(
+            f'<a {link_style()} href="https://github.com/A-z-exe/SchnellVPN">'
+            "github.com/A-z-exe/SchnellVPN</a>"
+        )
+        repository.setOpenExternalLinks(True)
+        layout.addWidget(repository)
+        layout.addStretch(1)
+        return page
 
     def values(self) -> dict:
         def port(edit: QLineEdit, fallback: int) -> int:
@@ -248,14 +332,54 @@ class LogsDialog(BaseDialog):
         lang: str,
         fetch_logs: Callable[[], str],
         parent: Optional[QWidget] = None,
+        version: str = "",
     ):
         super().__init__(lang, parent)
         self.setWindowTitle(self.tr_("logs"))
-        self.resize(720, 460)
+        self.resize(780, 520)
         self._fetch = fetch_logs
+        self.version = version
+        self._seen: set[tuple[str, str, str, str]] = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 12)
+        layout.setSpacing(8)
+
+        self.tabs = QTabWidget()
+        connections = QWidget()
+        conn_layout = QVBoxLayout(connections)
+        conn_layout.setContentsMargins(10, 10, 10, 10)
+        self.conn_view = QTableWidget(0, 4)
+        self.conn_view.setHorizontalHeaderLabels(
+            [
+                self.tr_("time"),
+                self.tr_("network"),
+                self.tr_("destination"),
+                self.tr_("source"),
+            ]
+        )
+        self.conn_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.conn_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.conn_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.conn_view.verticalHeader().setVisible(False)
+        self.conn_view.verticalHeader().setDefaultSectionSize(30)
+        self.conn_view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        header = self.conn_view.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setHighlightSections(False)
+        conn_layout.addWidget(self.conn_view)
+        self.conn_empty = QLabel(self.tr_("no_connections"))
+        self.conn_empty.setObjectName("hint")
+        self.conn_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        conn_layout.addWidget(self.conn_empty)
+        self.tabs.addTab(connections, self.tr_("connections"))
+
+        logs_page = QWidget()
+        logs_layout = QVBoxLayout(logs_page)
+        logs_layout.setContentsMargins(10, 10, 10, 10)
         self.view = QPlainTextEdit()
         self.view.setReadOnly(True)
         self.view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -264,17 +388,35 @@ class LogsDialog(BaseDialog):
         font.setFamily("Cascadia Mono")
         font.setPointSize(9)
         self.view.setFont(font)
-        layout.addWidget(self.view)
+        logs_layout.addWidget(self.view)
+        self.tabs.addTab(logs_page, self.tr_("logs"))
+        layout.addWidget(self.tabs)
+
+        hint = QLabel(self.tr_("report_hint"))
+        hint.setObjectName("hint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
 
         row = QHBoxLayout()
+        report = QPushButton(self.tr_("report_bug"))
+        report.clicked.connect(self._report)
+        row.addWidget(report)
+        copy = QPushButton(self.tr_("copy_logs"))
+        copy.clicked.connect(self._copy_logs)
+        row.addWidget(copy)
+        row.addStretch(1)
         refresh = QPushButton(self.tr_("refresh"))
         refresh.clicked.connect(self.refresh)
         row.addWidget(refresh)
-        row.addStretch(1)
         close = QPushButton(self.tr_("close"))
         close.clicked.connect(self.accept)
         row.addWidget(close)
         layout.addLayout(row)
+
+        self._feedback = QLabel("")
+        self._feedback.setStyleSheet("color: #34D399; font-size: 11px;")
+        self._feedback.setWordWrap(True)
+        layout.addWidget(self._feedback)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
@@ -282,12 +424,73 @@ class LogsDialog(BaseDialog):
         self.refresh()
 
     def refresh(self) -> None:
-        text = self._fetch()
+        text = self._fetch() or ""
         bar = self.view.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 4
-        self.view.setPlainText(text or "")
+        self.view.setPlainText(text)
         if at_bottom:
             bar.setValue(bar.maximum())
+        self._harvest(text)
+
+    def _harvest(self, text: str) -> None:
+        fresh: list[tuple[str, str, str, str]] = []
+        for match in ACCEPT_RE.finditer(text):
+            key = match.groups()
+            if key in self._seen:
+                continue
+            self._seen.add(key)
+            fresh.append(key)
+        if not fresh:
+            return
+        for stamp, source, network, destination in fresh:
+            self.conn_view.insertRow(0)
+            values = (stamp[11:], network, destination, source)
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(
+                    Qt.AlignmentFlag.AlignCenter
+                    if column == 1
+                    else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+                if column == 3:
+                    item.setForeground(QColor("#7C8CA2"))
+                self.conn_view.setItem(0, column, item)
+        while self.conn_view.rowCount() > MAX_CONNECTIONS:
+            self.conn_view.removeRow(self.conn_view.rowCount() - 1)
+        self.conn_empty.setVisible(self.conn_view.rowCount() == 0)
+
+    def _report_body(self) -> str:
+        header = (
+            f"SchnellVPN {self.version}\n"
+            f"{platform.platform()}\n"
+        )
+        logs = self.view.toPlainText()
+        return f"{header}\n----- logs (tail) -----\n{logs[-1600:]}"
+
+    def _report(self) -> None:
+        logs = self.view.toPlainText()
+        body = self._report_body()
+        app = QApplication.instance()
+        if app is not None:
+            app.clipboard().setText(
+                f"SchnellVPN {self.version}\n{platform.platform()}\n\n"
+                f"----- logs -----\n{logs}"
+            )
+        url = QUrl(f"mailto:{REPORT_EMAIL}")
+        query = QUrlQuery()
+        query.addQueryItem("subject", f"SchnellVPN {self.version} bug report")
+        query.addQueryItem("body", body)
+        url.setQuery(query)
+        opened = QDesktopServices.openUrl(url)
+        self._feedback.setText(
+            self.tr_("report_opened" if opened else "report_copied", email=REPORT_EMAIL)
+        )
+
+    def _copy_logs(self) -> None:
+        app = QApplication.instance()
+        if app is not None:
+            app.clipboard().setText(self.view.toPlainText())
+        self._feedback.setText(self.tr_("copied"))
 
 
 def qr_pixmap(text: str, size: int = 220) -> QPixmap:
@@ -385,20 +588,21 @@ class AboutDialog(BaseDialog):
 
         developer = QLabel(
             f'{self.tr_("developer")}: '
-            '<a href="https://github.com/A-z-exe">A-z-exe (Amirhosseinzarei)</a>'
+            f'<a {link_style()} href="https://github.com/A-z-exe">'
+            "A-z-exe (Amirhosseinzarei)</a>"
         )
         developer.setOpenExternalLinks(True)
         layout.addWidget(developer)
 
         support = QLabel(
             f'{self.tr_("support")}: '
-            '<a href="https://t.me/SchnellVPN">t.me/SchnellVPN</a>'
+            f'<a {link_style()} href="https://t.me/SchnellVPN">t.me/SchnellVPN</a>'
         )
         support.setOpenExternalLinks(True)
         layout.addWidget(support)
 
         repository = QLabel(
-            '<a href="https://github.com/A-z-exe/SchnellVPN">'
+            f'<a {link_style()} href="https://github.com/A-z-exe/SchnellVPN">'
             "github.com/A-z-exe/SchnellVPN</a>"
         )
         repository.setOpenExternalLinks(True)

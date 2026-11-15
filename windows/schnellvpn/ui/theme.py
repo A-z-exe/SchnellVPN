@@ -55,6 +55,37 @@ def download_icon(size: int = 18, color: QColor | None = None) -> QPixmap:
     painter.end()
     return pm
 
+
+def gear_icon(size: int = 18, color: QColor | None = None) -> QPixmap:
+    """Cogwheel glyph drawn with a painter; no icon font required."""
+    tint = color or QColor("#E6EDF3")
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(tint)
+    center = size / 2
+    tooth_w = size * 0.20
+    tooth_top = -size * 0.47
+    tooth_h = size * 0.20
+    radius = size * 0.045
+    for index in range(8):
+        painter.save()
+        painter.translate(center, center)
+        painter.rotate(index * 45)
+        painter.drawRoundedRect(
+            QRectF(-tooth_w / 2, tooth_top, tooth_w, tooth_h), radius, radius
+        )
+        painter.restore()
+    ring = QPainterPath()
+    ring.setFillRule(Qt.FillRule.OddEvenFill)
+    ring.addEllipse(QPointF(center, center), size * 0.33, size * 0.33)
+    ring.addEllipse(QPointF(center, center), size * 0.135, size * 0.135)
+    painter.drawPath(ring)
+    painter.end()
+    return pm
+
 DARK_QSS = """
 QWidget#root { background: #070B12; }
 QWidget { color: #E6EDF3; font-size: 13px; }
@@ -124,6 +155,11 @@ QMenu { background: #0E1520; border: 1px solid #1A2533; border-radius: 10px; pad
 QMenu::item { padding: 7px 22px; border-radius: 7px; }
 QMenu::item:selected { background: #16324A; }
 QMenu::separator { height: 1px; background: #1A2533; margin: 5px 8px; }
+QTabWidget::pane { border: 1px solid #1A2533; border-radius: 12px; margin-top: 6px; }
+QTabBar::tab { background: transparent; color: #8496AC; padding: 7px 16px;
+               border: none; font-size: 12px; }
+QTabBar::tab:hover { color: #C4D2E3; }
+QTabBar::tab:selected { color: #E6EDF3; border-bottom: 2px solid #22D3EE; }
 QToolTip { background: #0E1520; color: #E6EDF3; border: 1px solid #243246; padding: 5px; }
 QMessageBox { background: #0B121C; }
 QStatusBar { background: transparent; color: #7C8CA2; }
@@ -170,6 +206,11 @@ QDialog { background: #F8FAFC; }
 QMenu { background: #FFFFFF; border: 1px solid #D3DCE7; border-radius: 10px; padding: 6px; }
 QMenu::item { padding: 7px 22px; border-radius: 7px; }
 QMenu::item:selected { background: #E0F2FE; }
+QTabWidget::pane { border: 1px solid #DCE4EE; border-radius: 12px; margin-top: 6px; }
+QTabBar::tab { background: transparent; color: #64748B; padding: 7px 16px;
+               border: none; font-size: 12px; }
+QTabBar::tab:hover { color: #334155; }
+QTabBar::tab:selected { color: #0F172A; border-bottom: 2px solid #2563EB; }
 """
 
 
