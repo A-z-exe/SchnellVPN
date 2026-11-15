@@ -117,6 +117,7 @@ class MainWindow(QMainWindow):
         self._speed_pending = False
         self._last_rates: Optional[tuple[float, float]] = None
         self._pending_update: Optional[updater.UpdateInfo] = None
+        self._installing = False
         self._address_cache: dict[str, str] = {}
 
         self.setWindowTitle("SchnellVPN")
@@ -998,6 +999,8 @@ class MainWindow(QMainWindow):
 
     def _update_downloaded(self, path: Path) -> None:
         self.update_button.setEnabled(True)
+        if self._installing:
+            return
         info = self._pending_update
         version = info.version if info else ""
         self._set_hint(t(self.lang, "update_ready", version=version))
@@ -1008,9 +1011,11 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        self._installing = True
         try:
             updater.install(Path(path), version=version)
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI
+            self._installing = False
             self._set_hint(f"{t(self.lang, 'install_failed')}: {exc}")
             return
         self._log(f"installing update {version}")
@@ -1360,7 +1365,10 @@ class MainWindow(QMainWindow):
 
     def _quit(self) -> None:
         self._quitting = True
-        self.shutdown()
+        try:
+            self.shutdown()
+        except Exception as exc:  # noqa: BLE001 - quitting must never stall
+            self._log(f"shutdown error: {exc}")
         QApplication.quit()
 
     def shutdown(self) -> None:

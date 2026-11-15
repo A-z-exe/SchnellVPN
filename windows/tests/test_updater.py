@@ -61,31 +61,38 @@ def test_pick_release_skips_drafts():
 
 
 import hashlib
+from pathlib import Path
 
 from schnellvpn.core import updater as _updater
 
+PAYLOAD = b"MZ" + b"z" * (1024 * 1024)
 
-def _local_info(tmp_path, digest):
+
+def _local_info(tmp_path, digest, payload=PAYLOAD, size=0):
     source = tmp_path / "payload.bin"
-    source.write_bytes(b"z" * (1024 * 1024))
+    source.write_bytes(payload)
     return _updater.UpdateInfo(
         version="9.9.9",
         tag="v9.9.9-windows-beta",
         url=source.as_uri(),
         sha256=digest,
+        size=size,
     )
 
 
-def test_download_verifies_digest(tmp_path):
-    digest = hashlib.sha256(b"z" * (1024 * 1024)).hexdigest()
-    info = _local_info(tmp_path, digest)
+def test_download_verifies_digest(tmp_path, monkeypatch):
+    monkeypatch.setattr(_updater.time, "sleep", lambda *_: None)
+    digest = hashlib.sha256(PAYLOAD).hexdigest()
+    info = _local_info(tmp_path, digest, size=len(PAYLOAD))
     target = updater.download(info, tmp_path / "updates")
     assert target.is_file()
     assert target.name == "SchnellVPN-9.9.9.exe"
-    assert target.stat().st_size == 1024 * 1024
+    assert target.stat().st_size == len(PAYLOAD)
+    assert not (tmp_path / "updates" / "SchnellVPN-9.9.9.exe.part").exists()
 
 
-def test_download_rejects_bad_digest(tmp_path):
+def test_download_rejects_bad_digest(tmp_path, monkeypatch):
+    monkeypatch.setattr(_updater.time, "sleep", lambda *_: None)
     info = _local_info(tmp_path, "0" * 64)
     try:
         updater.download(info, tmp_path / "updates")
@@ -94,3 +101,59 @@ def test_download_rejects_bad_digest(tmp_path):
     else:
         raise AssertionError("bad digest was accepted")
     assert not (tmp_path / "updates" / "SchnellVPN-9.9.9.exe").exists()
+    assert not (tmp_path / "updates" / "SchnellVPN-9.9.9.exe.part").exists()
+
+
+def test_download_rejects_truncated_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(_updater.time, "sleep", lambda *_: None)
+    digest = hashlib.sha256(PAYLOAD).hexdigest()
+    info = _local_info(tmp_path, digest, size=len(PAYLOAD) + 42)
+    try:
+        updater.download(info, tmp_path / "updates")
+    except RuntimeError as exc:
+        assert "incomplete" in str(exc)
+    else:
+        raise AssertionError("truncated download was accepted")
+    assert not (tmp_path / "updates" / "SchnellVPN-9.9.9.exe").exists()
+
+
+def test_download_rejects_non_exe(tmp_path, monkeypatch):
+    monkeypatch.setattr(_updater.time, "sleep", lambda *_: None)
+    payload = b"PK\x03\x04" + b"z" * 1024
+    digest = hashlib.sha256(payload).hexdigest()
+    info = _local_info(tmp_path, digest, payload=payload)
+    try:
+        updater.download(info, tmp_path / "updates")
+    except RuntimeError as exc:
+        assert "Windows program" in str(exc)
+    else:
+        raise AssertionError("non-exe payload was accepted")
+    assert not (tmp_path / "updates" / "SchnellVPN-9.9.9.exe").exists()
+
+
+def test_install_helper_uses_no_console_apps(tmp_path, monkeypatch):
+    # `timeout` needs a console and made the helper flash cmd windows in a loop.
+    monkeypatch.setattr(_updater, "app_data_dir", lambda: tmp_path)
+    launched = {}
+
+    def fake_popen(args, **kwargs):
+        launched["args"] = args
+        return object()
+
+    monkeypatch.setattr(_updater.subprocess, "Popen", fake_popen)
+    current = tmp_path / "SchnellVPN.exe"
+    current.write_bytes(b"MZ old")
+    update = tmp_path / "SchnellVPN-9.9.9.exe"
+    update.write_bytes(b"MZ new")
+
+    _updater.install(update, current_exe=current, version="9.9.9")
+
+    script = Path(launched["args"][2])
+    try:
+        text = script.read_text(encoding="ascii")
+    finally:
+        script.unlink(missing_ok=True)
+    assert "timeout" not in text
+    assert "schnellvpn-boot-9.9.9.ok" in text
+    assert "schnellvpn-update.lock" in text
+    assert "install.log" in text
