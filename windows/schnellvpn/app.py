@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
@@ -16,7 +17,7 @@ from .ui.theme import app_icon, stylesheet
 def _mark_boot_ok() -> None:
     """Signal the update helper that this build really came up."""
     try:
-        marker = tempfile.gettempdir() / f"schnellvpn-boot-{__version__}.ok"
+        marker = Path(tempfile.gettempdir()) / f"schnellvpn-boot-{__version__}.ok"
         marker.write_text(str(sys.executable), encoding="utf-8")
     except OSError:
         pass
