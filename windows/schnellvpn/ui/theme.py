@@ -91,6 +91,8 @@ QWidget#root { background: #070B12; }
 QWidget { color: #E6EDF3; font-size: 13px; }
 QLabel { background: transparent; }
 QLabel#title { font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
+QLabel#version { color: #8496AC; font-size: 10px; font-weight: 600;
+                 border: 1px solid #1B2634; border-radius: 8px; padding: 0 6px; margin-bottom: 2px; }
 QLabel#subtitle { color: #8496AC; font-size: 11px; }
 QLabel#section { color: #8496AC; font-size: 11px; font-weight: 600;
                  letter-spacing: 1.2px; text-transform: uppercase; }
@@ -170,6 +172,8 @@ QWidget#root { background: #F2F5F9; }
 QWidget { color: #0F172A; font-size: 13px; }
 QLabel { background: transparent; }
 QLabel#title { font-size: 20px; font-weight: 700; }
+QLabel#version { color: #64748B; font-size: 10px; font-weight: 600;
+                 border: 1px solid #D3DCE7; border-radius: 8px; padding: 0 6px; margin-bottom: 2px; }
 QLabel#subtitle, QLabel#section, QLabel#hint { color: #64748B; font-size: 11px; }
 QLabel#status { font-size: 17px; font-weight: 700; }
 QLabel#chip { background: #E7EDF5; border: 1px solid #D3DCE7; border-radius: 10px;

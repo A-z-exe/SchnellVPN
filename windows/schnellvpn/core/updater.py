@@ -86,6 +86,15 @@ def pick_release(releases: list[dict], current: str) -> Optional[UpdateInfo]:
     return None
 
 
+def _short_reason(exc: BaseException) -> str:
+    text = str(getattr(exc, "reason", exc))
+    if "timed out" in text or "timeout" in text:
+        return "timed out"
+    if "getaddrinfo" in text:
+        return "DNS lookup failed"
+    return text.splitlines()[0]
+
+
 def _open(request: urllib.request.Request, timeout: float):
     """Open a URL through the system proxy first, then directly.
 
@@ -119,7 +128,7 @@ def check(current_version: str, timeout: float = 12.0) -> Optional[UpdateInfo]:
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"GitHub API: HTTP {exc.code}") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"network error: {exc.reason}") from exc
+        raise RuntimeError(f"GitHub unreachable: {_short_reason(exc)}") from exc
     try:
         releases = json.loads(payload.decode("utf-8", "replace"))
     except json.JSONDecodeError as exc:
@@ -182,7 +191,7 @@ def download(info: UpdateInfo, target_dir: Optional[Path] = None) -> Path:
         except OSError:
             pass
         return target
-    raise RuntimeError(f"network error: {getattr(error, 'reason', error)}")
+    raise RuntimeError(f"network error: {_short_reason(error)}")
 
 
 def _fetch(request: urllib.request.Request, part: Path) -> None:

@@ -5,7 +5,7 @@ A Windows client for [SchnellVPN](../README.md), built with **Python + PySide6**
 sense on a desktop: subscriptions, real latency measurement, verified data flow and a
 system proxy.
 
-> Status: beta (0.2.6). Connection, system proxy, probes, profiles, subscription refresh,
+> Status: beta (0.2.7). Connection, system proxy, probes, profiles, subscription refresh,
 > in-app updates and the live speed chart work. TUN mode and per-app split tunneling are not
 > implemented yet (see *Limitations*).
 
