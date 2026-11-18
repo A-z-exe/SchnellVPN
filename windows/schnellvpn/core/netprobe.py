@@ -182,8 +182,42 @@ def _http_get_via_proxy(url: str, proxy_port: int, timeout: float) -> Optional[i
         return None
 
 
+def _https_via_proxy(
+    host: str, port: int, proxy_port: int, timeout: float
+) -> Optional[int]:
+    """CONNECT + TLS handshake through the HTTP inbound, like an https page."""
+    started = time.monotonic()
+    with socket.create_connection(("127.0.0.1", proxy_port), timeout=timeout) as sock:
+        sock.settimeout(timeout)
+        sock.sendall(
+            (
+                f"CONNECT {host}:{port} HTTP/1.1\r\n"
+                f"Host: {host}:{port}\r\n\r\n"
+            ).encode("ascii")
+        )
+        status_line = b""
+        while b"\r\n" not in status_line and len(status_line) < 256:
+            chunk = sock.recv(1)
+            if not chunk:
+                break
+            status_line += chunk
+        fields = status_line.split()
+        if len(fields) < 2 or not fields[0].startswith(b"HTTP/"):
+            return None
+        if not 200 <= int(fields[1]) < 300:
+            return None
+        context = ssl.create_default_context()
+        with context.wrap_socket(sock, server_hostname=host) as tls:
+            tls.do_handshake()
+        return max(1, int((time.monotonic() - started) * 1000))
+
+
 def probe_http_proxy(proxy_port: int = 10809, timeout_ms: int = 8000) -> Optional[int]:
-    """Real request through the HTTP inbound, like a browser would make."""
+    """Real request through the HTTP inbound, like a browser would make.
+
+    Plain-HTTP absolute URIs are tried first; some servers drop port 80
+    entirely, so an https CONNECT (the path every https page takes) counts too.
+    """
     deadline = time.monotonic() + timeout_ms / 1000
     for url in PROXY_ENDPOINTS:
         left = deadline - time.monotonic()
@@ -194,6 +228,16 @@ def probe_http_proxy(proxy_port: int = 10809, timeout_ms: int = 8000) -> Optiona
             if latency is not None:
                 return latency
         except (OSError, ValueError):
+            continue
+    for host in ("cp.cloudflare.com", "www.gstatic.com"):
+        left = deadline - time.monotonic()
+        if left < 0.5:
+            break
+        try:
+            latency = _https_via_proxy(host, 443, proxy_port, min(left, 4.0))
+            if latency is not None:
+                return latency
+        except (OSError, ssl.SSLError, ValueError):
             continue
     return None
 
