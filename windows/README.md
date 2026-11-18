@@ -5,7 +5,7 @@ A Windows client for [SchnellVPN](../README.md), built with **Python + PySide6**
 sense on a desktop: subscriptions, real latency measurement, verified data flow and a
 system proxy.
 
-> Status: beta (0.2.9). Connection, system proxy, probes, profiles, subscription refresh,
+> Status: beta (0.2.10). Connection, system proxy, probes, profiles, subscription refresh,
 > in-app updates and the live speed chart work. TUN mode and per-app split tunneling are not
 > implemented yet (see *Limitations*).
 
@@ -49,6 +49,9 @@ system proxy.
 - **About and support**: version, engine, developer and links to the Telegram channel
   ([t.me/SchnellVPN](https://t.me/SchnellVPN)) and the repository.
 - **Languages**: فارسی (RTL), English, Deutsch. Dark and light themes.
+- **Single instance**: starting the app again (shortcut, autostart, second copy) does not
+  spawn another core and window; it brings the running window to the front. A named mutex
+  covers the whole Windows session, so even two different exe copies collapse into one.
 - **Tray icon**, logs viewer and a packaged single-file executable in releases.
 
 ## Architecture
