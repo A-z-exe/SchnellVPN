@@ -5,7 +5,7 @@ A Windows client for [SchnellVPN](../README.md), built with **Python + PySide6**
 sense on a desktop: subscriptions, real latency measurement, verified data flow and a
 system proxy.
 
-> Status: beta (0.2.8). Connection, system proxy, probes, profiles, subscription refresh,
+> Status: beta (0.2.9). Connection, system proxy, probes, profiles, subscription refresh,
 > in-app updates and the live speed chart work. TUN mode and per-app split tunneling are not
 > implemented yet (see *Limitations*).
 
@@ -42,7 +42,9 @@ system proxy.
   proxy) is probed with a real plain-HTTP request before the app reports "connected"; a
   server that only carries SOCKS traffic is rejected with a clear message.
 - **Sorted by real delay**: after a ping or real-delay test the server list is re-ordered
-  fastest first (untested servers last) and saved to the profile.
+  fastest first (untested servers last) and saved to the profile. Measured values survive a
+  subscription refresh (matched by link), so the list is already ordered when the new
+  servers land.
 - **Profiles**: independent server sets and selected servers per profile.
 - **About and support**: version, engine, developer and links to the Telegram channel
   ([t.me/SchnellVPN](https://t.me/SchnellVPN)) and the repository.

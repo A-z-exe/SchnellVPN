@@ -827,6 +827,8 @@ class MainWindow(QMainWindow):
         profile = self.store.profile
         old = list(profile.servers)
         selected_link = profile.selected_server.link if profile.selected_server else ""
+        old_pings = {s.link: self.pings[s.id] for s in old if s.id in self.pings}
+        old_delays = {s.link: self.delays[s.id] for s in old if s.id in self.delays}
 
         merged: list[VpnServer] = []
         seen: set[str] = set()
@@ -863,7 +865,13 @@ class MainWindow(QMainWindow):
         )
         self.pings.clear()
         self.delays.clear()
+        for server in merged:
+            if server.link in old_pings:
+                self.pings[server.id] = old_pings[server.link]
+            if server.link in old_delays:
+                self.delays[server.id] = old_delays[server.link]
         self.store.save()
+        self._sort_servers()
         self.refresh_table()
 
         failed = sum(1 for servers in fetched.values() if servers is None)
