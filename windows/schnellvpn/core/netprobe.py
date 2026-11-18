@@ -24,6 +24,11 @@ HTTP_ENDPOINTS = (
     "http://neverssl.com/",
     "http://1.1.1.1/",
 )
+# Plain HTTP so a TLS-blocking server is not reported as a broken inbound.
+PROXY_ENDPOINTS = (
+    "http://neverssl.com/",
+    "http://cp.cloudflare.com/generate_204",
+)
 MAX_PING_MS = 4000
 
 
@@ -140,6 +145,57 @@ def probe_with_latency(socks_port: int = 10808, timeout_ms: int = 3000) -> Optio
 
 def probe(socks_port: int = 10808, timeout_ms: int = 3000) -> bool:
     return probe_with_latency(socks_port, timeout_ms) is not None
+
+
+def _http_get_via_proxy(url: str, proxy_port: int, timeout: float) -> Optional[int]:
+    """Plain HTTP request through the local Xray HTTP inbound.
+
+    Browsers talk to that port with absolute-URI GETs and CONNECT; this mirrors
+    the absolute-URI path so a dead HTTP inbound is caught before the app says
+    "connected".
+    """
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    path = parts.path or "/"
+    if parts.query:
+        path += "?" + parts.query
+    started = time.monotonic()
+    with socket.create_connection(("127.0.0.1", proxy_port), timeout=timeout) as sock:
+        sock.settimeout(timeout)
+        request = (
+            f"GET {url} HTTP/1.1\r\nHost: {host}\r\n"
+            "User-Agent: SchnellVPN-Windows\r\nConnection: close\r\n\r\n"
+        )
+        sock.sendall(request.encode("ascii"))
+        status_line = b""
+        while b"\r\n" not in status_line and len(status_line) < 256:
+            chunk = sock.recv(1)
+            if not chunk:
+                break
+            status_line += chunk
+        fields = status_line.split()
+        if len(fields) < 2 or not fields[0].startswith(b"HTTP/"):
+            return None
+        code = int(fields[1])
+        if 200 <= code < 400:
+            return max(1, int((time.monotonic() - started) * 1000))
+        return None
+
+
+def probe_http_proxy(proxy_port: int = 10809, timeout_ms: int = 8000) -> Optional[int]:
+    """Real request through the HTTP inbound, like a browser would make."""
+    deadline = time.monotonic() + timeout_ms / 1000
+    for url in PROXY_ENDPOINTS:
+        left = deadline - time.monotonic()
+        if left < 0.35:
+            break
+        try:
+            latency = _http_get_via_proxy(url, proxy_port, min(left, 4.0))
+            if latency is not None:
+                return latency
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 def _sanitize(ms: int) -> Optional[int]:

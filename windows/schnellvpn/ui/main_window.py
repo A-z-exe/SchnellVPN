@@ -284,8 +284,8 @@ class MainWindow(QMainWindow):
 
         self.connect_button = QPushButton()
         self.connect_button.setObjectName("primary")
-        self.connect_button.setFixedWidth(260)
-        self.connect_button.setMinimumHeight(50)
+        self.connect_button.setFixedWidth(200)
+        self.connect_button.setMinimumHeight(42)
         self.connect_button.clicked.connect(self._connect_clicked)
         row.addWidget(self.connect_button)
         layout.addLayout(row)
@@ -608,6 +608,24 @@ class MainWindow(QMainWindow):
         self.table.setVisible(bool(profile.servers))
         self._render_state()
 
+    def _sort_servers(self) -> None:
+        profile = self.store.profile
+        if len(profile.servers) < 2:
+            return
+
+        def rank(server: VpnServer):
+            value = self.delays.get(server.id)
+            if value is None:
+                value = self.pings.get(server.id)
+            return (value is None, value if value is not None else 0, server.name.lower())
+
+        ordered = sorted(profile.servers, key=rank)
+        if [server.id for server in ordered] == [server.id for server in profile.servers]:
+            return
+        profile.servers = ordered
+        self.store.save()
+        self.refresh_table()
+
     def _fmt_ms(self, ms: Optional[int]) -> str:
         if ms is None:
             return "\u2014"
@@ -873,6 +891,7 @@ class MainWindow(QMainWindow):
 
     def _apply_pings(self, results: dict[int, Optional[int]]) -> None:
         self.pings.update(results)
+        self._sort_servers()
         self._set_hint(t(self.lang, "hint_ready") if self.state == STATE_IDLE else self.hint_label.text())
         self._refresh_metrics()
 
@@ -895,6 +914,7 @@ class MainWindow(QMainWindow):
             self._set_hint(t(self.lang, "delay_engine_failed"))
             return
         self.delays.update(results)
+        self._sort_servers()
         self._set_hint(t(self.lang, "delay_done"))
         self._refresh_metrics()
 

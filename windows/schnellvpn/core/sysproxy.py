@@ -13,6 +13,24 @@ from .runner import app_data_dir
 REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
 INTERNET_OPTION_REFRESH = 37
 INTERNET_OPTION_SETTINGS_CHANGED = 39
+# Windows' own default list; an empty ProxyOverride makes every app (browsers
+# included) send even localhost and LAN traffic into the tunnel.
+DEFAULT_BYPASS = (
+    "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;"
+    "172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;"
+    "172.28.*;172.29.*;172.30.*;172.31.*;192.168.*;<local>"
+)
+
+
+def _bypass(value: str) -> str:
+    items = [item.strip() for item in (value or "").split(";") if item.strip()]
+    if not items:
+        return DEFAULT_BYPASS
+    if "<local>" not in items:
+        items.append("<local>")
+    if "localhost" not in items and "127.*" not in items:
+        items.append("localhost")
+    return ";".join(items)
 
 
 def _winreg():  # imported lazily so non-Windows tests can import this module
@@ -97,7 +115,7 @@ class SystemProxy:
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.is_file():
             path.write_text(json.dumps(current), encoding="utf-8")
-        override = current.get("override") or "<local>"
+        override = _bypass(current.get("override") or "")
         _write(
             {
                 "enable": True,

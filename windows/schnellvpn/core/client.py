@@ -7,7 +7,12 @@ from typing import Optional
 
 from .config import HTTP_PORT, SOCKS_PORT, build_config
 from .links import LinkError
-from .netprobe import free_port, internet_available, probe_with_latency
+from .netprobe import (
+    free_port,
+    internet_available,
+    probe_http_proxy,
+    probe_with_latency,
+)
 from .runner import XrayError, XrayProcess
 from .sysproxy import SystemProxy, restore_stale
 
@@ -63,6 +68,10 @@ class TunnelClient:
             detail = self.runner.logs(3000).strip()
             self.runner.stop()
             raise TunnelError("probe_failed", detail)
+
+        if use_system_proxy and probe_http_proxy(http_port) is None:
+            self.runner.stop()
+            raise TunnelError("proxy_probe_failed")
 
         self.stats_port = api_port
         self.proxy.port = http_port
