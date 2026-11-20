@@ -32,6 +32,10 @@ class TunnelClient:
         self.stats_port: Optional[int] = None
 
     @property
+    def running(self) -> bool:
+        return self.runner.running
+
+    @property
     def stats_server(self) -> str:
         return f"127.0.0.1:{self.stats_port}" if self.stats_port else ""
 
