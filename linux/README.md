@@ -1,10 +1,10 @@
-# SchnellVPN for Linux (beta)
+# SchnellVPN for Linux
 
 The same Python client as the Windows build, packaged for Linux desktops:
 subscriptions, profiles, real ping/delay tests, verified data flow and a system
 proxy, with the Xray-core engine bundled.
 
-> Status: beta (0.3.0). Works on X11 and Wayland desktops with Qt 6; the system
+> Status: stable (1.5.0). Works on X11 and Wayland desktops with Qt 6; the system
 > proxy is applied through GSettings (GNOME and anything that follows
 > `org.gnome.system.proxy`). TUN mode, split tunneling and a KDE-only proxy
 > backend are not implemented yet.
