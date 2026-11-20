@@ -72,9 +72,13 @@ def _asset_kind(name: str) -> Optional[str]:
     return None
 
 
+def _platform() -> str:
+    return sys.platform
+
+
 def asset_for_build(release: dict) -> Optional[dict]:
     """Pick our own build: Linux AppImage, Win7 exe or the x64 exe."""
-    if sys.platform.startswith("linux"):
+    if _platform().startswith("linux"):
         wanted = "linux"
     else:
         wanted = "win7" if legacy_build() else "win"

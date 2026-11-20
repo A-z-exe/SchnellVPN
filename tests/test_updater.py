@@ -1,5 +1,12 @@
 from schnellvpn.core import updater
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def windows_platform(monkeypatch):
+    monkeypatch.setattr(updater, "_platform", lambda: "win32")
+
 
 def _release(tag, assets, **extra):
     payload = {"tag_name": tag, "assets": assets, "draft": False}
@@ -170,3 +177,14 @@ def test_asset_selection_follows_the_build(monkeypatch):
     assert _updater.asset_for_build(release)["browser_download_url"] == "x64"
     monkeypatch.setattr(_updater, "legacy_build", lambda: True)
     assert _updater.asset_for_build(release)["browser_download_url"] == "win7"
+
+
+def test_linux_build_picks_the_appimage(monkeypatch):
+    monkeypatch.setattr(_updater, "_platform", lambda: "linux")
+    release = {
+        "assets": [
+            {"name": "SchnellVPN.exe", "browser_download_url": "exe"},
+            {"name": "SchnellVPN-1.5.0-x86_64.AppImage", "browser_download_url": "app"},
+        ]
+    }
+    assert _updater.asset_for_build(release)["browser_download_url"] == "app"
