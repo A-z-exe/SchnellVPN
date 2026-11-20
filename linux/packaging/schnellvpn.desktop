@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=SchnellVPN
+GenericName=VPN Client
+Comment=Fast Xray-core VPN client
+Exec=SchnellVPN
+Icon=schnellvpn
+Terminal=false
+Categories=Network;VPN;
+Keywords=vpn;proxy;xray;reality;
+StartupNotify=true
+StartupWMClass=SchnellVPN

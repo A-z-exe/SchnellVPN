@@ -760,7 +760,13 @@ class MainActivity : ComponentActivity() {
                     // کانفیگ مستقیم — بدون نیاز به اینترنت
                     val parsed = withContext(Dispatchers.IO) { SubscriptionFetcher.parseContent(trimmed) }
                     if (parsed.isEmpty()) {
-                        showToast(scope, "این لینک کانفیگ معتبر نیست")
+                        val unsupported = SubscriptionFetcher.unsupportedInText(trimmed)
+                        showToast(
+                            scope,
+                            if (unsupported.isNotEmpty())
+                                "${unsupported.joinToString("، ")} پشتیبانی نمی‌شود (هسته‌ی Xray)"
+                            else "این لینک کانفیگ معتبر نیست"
+                        )
                         return@launch
                     }
                     ensureProfile()
@@ -775,9 +781,15 @@ class MainActivity : ComponentActivity() {
                     showToast(scope, if (added == 0) "این کانفیگ قبلاً اضافه شده بود" else "$added کانفیگ به پروفایل فعلی اضافه شد")
                 } else {
                     // اشتراک
-                    val result = withContext(Dispatchers.IO) { SubscriptionFetcher.fetchAndParse(trimmed) }
+                    val result = withContext(Dispatchers.IO) { SubscriptionFetcher.fetchAndParse(this@MainActivity, trimmed) }
                     if (result.isEmpty()) {
-                        showToast(scope, "هیچ سرور معتبری توی این لینک پیدا نشد")
+                        val unsupported = SubscriptionFetcher.unsupportedInText(trimmed)
+                        showToast(
+                            scope,
+                            if (unsupported.isNotEmpty())
+                                "این اشتراک فقط ${unsupported.joinToString("، ")} دارد — هسته‌ی Xray پشتیبانی نمی‌کند"
+                            else "هیچ سرور معتبری توی این لینک پیدا نشد"
+                        )
                         return@launch
                     }
                     val numbered = ServerListOps.renumber(result.map { it.copy(source = trimmed) }, null).first
@@ -834,7 +846,7 @@ class MainActivity : ComponentActivity() {
                 var failures = 0
                 for (url in urls) {
                     val list = try {
-                        withContext(Dispatchers.IO) { SubscriptionFetcher.fetchAndParse(url) }
+                        withContext(Dispatchers.IO) { SubscriptionFetcher.fetchAndParse(this@MainActivity, url) }
                     } catch (e: Exception) {
                         null
                     }

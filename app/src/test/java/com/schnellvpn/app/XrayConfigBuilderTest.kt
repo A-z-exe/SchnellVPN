@@ -294,4 +294,53 @@ class XrayConfigBuilderTest {
         expectIllegalArgument { XrayConfigBuilder.buildConfig("http://example.com") }
         expectIllegalArgument { XrayConfigBuilder.buildConfig("{ not json") }
     }
+
+    @Test
+    fun plainLinksGetMuxAndVisionDoesNot() {
+        val plain = XrayConfigBuilder.parseOutbound("vless://$uuid@example.com:443?security=tls#p")
+        assertTrue(plain.getJSONObject("mux").getBoolean("enabled"))
+        assertEquals(8, plain.getJSONObject("mux").getInt("concurrency"))
+
+        val vision = XrayConfigBuilder.parseOutbound(
+            "vless://$uuid@example.com:443?security=reality&pbk=K&flow=xtls-rprx-vision#v"
+        )
+        assertFalse(vision.getJSONObject("mux").getBoolean("enabled"))
+
+        val vmess = b64("""{"add":"v.example.com","port":"443","id":"$uuid","net":"ws","tls":"tls"}""")
+        assertTrue(XrayConfigBuilder.parseOutbound("vmess://$vmess").getJSONObject("mux").getBoolean("enabled"))
+        assertTrue(
+            XrayConfigBuilder.parseOutbound("trojan://pw@t.example.com:443").getJSONObject("mux").getBoolean("enabled")
+        )
+    }
+
+    @Test
+    fun tcpTransportsEnableFastOpen() {
+        val ss = XrayConfigBuilder.parseOutbound("vless://$uuid@example.com:443?type=tcp#t")
+            .getJSONObject("streamSettings")
+        val sockopt = ss.getJSONObject("sockopt")
+        assertTrue(sockopt.getBoolean("tcpFastOpen"))
+        assertTrue(sockopt.getBoolean("tcpNoDelay"))
+    }
+
+    @Test
+    fun socksLinksWithAndWithoutCredentials() {
+        val plain = XrayConfigBuilder.parseOutbound("socks://127.0.0.1:1080#local")
+        assertEquals("socks", plain.getString("protocol"))
+        assertEquals("127.0.0.1", server(plain).getString("address"))
+        assertEquals(1080, server(plain).getInt("port"))
+        assertFalse(server(plain).has("users"))
+
+        val withPass = XrayConfigBuilder.parseOutbound("socks://user:pa%40ss@s.example.com:1080#p")
+        val user = server(withPass).getJSONArray("users").getJSONObject(0)
+        assertEquals("user", user.getString("user"))
+        assertEquals("pa@ss", user.getString("pass"))
+
+        val base64Cred = XrayConfigBuilder.parseOutbound("socks://" + b64("u2:p2") + "@s.example.com:1081")
+        assertEquals("u2", server(base64Cred).getJSONArray("users").getJSONObject(0).getString("user"))
+
+        assertEquals(
+            "s.example.com" to 1080,
+            XrayConfigBuilder.endpointOf("socks://s.example.com:1080")
+        )
+    }
 }

@@ -167,6 +167,6 @@ def test_asset_selection_follows_the_build(monkeypatch):
         ]
     }
     monkeypatch.setattr(_updater, "legacy_build", lambda: False)
-    assert _updater.exe_asset(release)["browser_download_url"] == "x64"
+    assert _updater.asset_for_build(release)["browser_download_url"] == "x64"
     monkeypatch.setattr(_updater, "legacy_build", lambda: True)
-    assert _updater.exe_asset(release)["browser_download_url"] == "win7"
+    assert _updater.asset_for_build(release)["browser_download_url"] == "win7"

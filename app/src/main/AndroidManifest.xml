@@ -57,10 +57,10 @@
             android:screenOrientation="fullSensor"
             tools:replace="android:screenOrientation" />
 
-        <!-- اتصال خودکار بعد از روشن شدن گوشی -->
+        <!-- اتصال خودکار بعد از روشن شدن گوشی (فقط رادیوی سیستمی؛ اپ‌های دیگر نتوانند اسپوف کنند) -->
         <receiver
             android:name=".BootReceiver"
-            android:exported="true"
+            android:exported="false"
             android:enabled="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

@@ -204,6 +204,7 @@ object XrayConfigBuilder {
                 trimmed.startsWith("vmess://", true) -> parseVmess(trimmed)
                 trimmed.startsWith("trojan://", true) -> parseTrojan(trimmed)
                 trimmed.startsWith("ss://", true) -> parseShadowsocks(trimmed)
+                trimmed.startsWith("socks://", true) -> parseSocks(trimmed)
                 else -> throw IllegalArgumentException("Unsupported protocol: ${trimmed.take(20)}")
             }
         } catch (e: IllegalArgumentException) {
@@ -371,10 +372,22 @@ object XrayConfigBuilder {
                 "none", "" -> {}
                 else -> throw IllegalArgumentException("Unsupported security: $security")
             }
+
+            // TFO saves a full round trip on every new connection (less mobile data
+            // and radio time); kcp is UDP, so it does not apply there.
+            if (network != "kcp") {
+                put("sockopt", JSONObject().apply {
+                    put("tcpFastOpen", true)
+                    put("tcpNoDelay", true)
+                })
+            }
         }
     }
 
-    private fun defaultMux() = JSONObject().apply { put("enabled", false); put("concurrency", -1) }
+    private fun defaultMux(enabled: Boolean = true) = JSONObject().apply {
+        put("enabled", enabled)
+        put("concurrency", if (enabled) 8 else -1)
+    }
 
     // ---------------------------------------------------------------- protocols
 
@@ -394,7 +407,8 @@ object XrayConfigBuilder {
                 }))
             })))
             put("streamSettings", buildStream(u.params, u.host, "none"))
-            put("mux", defaultMux())
+            // XTLS Vision does not support mux; plain links benefit from it (fewer handshakes = less data).
+            put("mux", defaultMux(enabled = flow.isEmpty()))
         }
     }
 
@@ -456,6 +470,7 @@ object XrayConfigBuilder {
                 put("address", u.host); put("port", port); put("password", password)
             })))
             put("streamSettings", buildStream(u.params, u.host, "tls"))
+            put("mux", defaultMux())
         }
     }
 
@@ -493,6 +508,42 @@ object XrayConfigBuilder {
             put("settings", JSONObject().put("servers", JSONArray().put(JSONObject().apply {
                 put("address", host); put("port", validPort(port)); put("method", method); put("password", password)
             })))
+            put("mux", defaultMux())
         }
+    }
+
+    /**
+     * socks://HOST:PORT, socks://user:pass@HOST:PORT or socks://BASE64(user:pass)@HOST:PORT
+     * (the format exported by v2rayN / NekoBox).
+     */
+    private fun parseSocks(link: String): JSONObject {
+        val u = parseUrl(link)
+        val port = validPort(u.port, 1080)
+        val credential = decodeSocksCredential(u.userInfo.orEmpty())
+
+        return JSONObject().apply {
+            put("tag", "proxy"); put("protocol", "socks")
+            put("settings", JSONObject().put("servers", JSONArray().put(JSONObject().apply {
+                put("address", u.host); put("port", port)
+                if (credential != null) {
+                    put("users", JSONArray().put(JSONObject().apply {
+                        put("user", credential.first); put("pass", credential.second)
+                    }))
+                }
+            })))
+        }
+    }
+
+    private fun decodeSocksCredential(userInfo: String): Pair<String, String>? {
+        if (userInfo.isEmpty()) return null
+        if (userInfo.contains(':')) {
+            val user = userInfo.substringBefore(':')
+            val pass = userInfo.substringAfter(':')
+            return if (user.isNotEmpty()) user to pass else null
+        }
+        val decoded = Base64Compat.decodeToString(userInfo) ?: return null
+        if (!decoded.contains(':')) return null
+        val user = decoded.substringBefore(':')
+        return if (user.isNotEmpty()) user to decoded.substringAfter(':') else null
     }
 }

@@ -24,21 +24,31 @@ def app_data_dir() -> Path:
     appdata = os.environ.get("APPDATA")
     if appdata:
         return Path(appdata) / "SchnellVPN"
-    return Path.home() / ".schnellvpn"
+    config = os.environ.get("XDG_CONFIG_HOME")
+    if config:
+        return Path(config) / "SchnellVPN"
+    return Path.home() / ".config" / "SchnellVPN"
+
+
+def xray_name() -> str:
+    return "xray.exe" if sys.platform == "win32" else "xray"
 
 
 def find_binary() -> Optional[Path]:
     env = os.environ.get("SCHNELLVPN_XRAY")
     if env and Path(env).is_file():
         return Path(env).resolve()
+    name = xray_name()
     candidates: list[Path] = []
     if getattr(sys, "_MEIPASS", None):  # PyInstaller onefile
-        candidates.append(Path(sys._MEIPASS) / "xray" / "xray.exe")
+        candidates.append(Path(sys._MEIPASS) / "xray" / name)
     here = Path(__file__).resolve()
     for parent in here.parents:
-        candidates.append(parent / "vendor" / "xray" / "xray.exe")
-        candidates.append(parent / "windows" / "vendor" / "xray" / "xray.exe")
-    candidates.append(Path.cwd() / "vendor" / "xray" / "xray.exe")
+        candidates.append(parent / "vendor" / "xray" / name)
+        candidates.append(parent / "vendor" / "xray-linux" / name)
+        candidates.append(parent / "windows" / "vendor" / "xray" / name)
+        candidates.append(parent / "linux" / "vendor" / "xray-linux" / name)
+    candidates.append(Path.cwd() / "vendor" / "xray" / name)
     for candidate in candidates:
         if candidate.is_file():
             return candidate
@@ -70,8 +80,13 @@ class XrayProcess:
             raise XrayError("xray is already running")
         if not self.binary or not self.binary.is_file():
             raise XrayError(
-                "xray.exe not found. Put it in vendor/xray/ or set SCHNELLVPN_XRAY."
+                f"{xray_name()} not found. Put it in vendor/xray/ or set SCHNELLVPN_XRAY."
             )
+        if sys.platform != "win32" and not os.access(str(self.binary), os.X_OK):
+            try:
+                self.binary.chmod(0o755)
+            except OSError:
+                pass
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(

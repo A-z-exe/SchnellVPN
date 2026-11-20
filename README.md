@@ -3,47 +3,52 @@
 [![Build](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml/badge.svg)](https://github.com/A-z-exe/SchnellVPN/actions/workflows/build.yml)
 [![Windows](https://github.com/A-z-exe/SchnellVPN/actions/workflows/windows.yml/badge.svg)](https://github.com/A-z-exe/SchnellVPN/actions/workflows/windows.yml)
 ![Platform](https://img.shields.io/badge/platform-Android-green)
-![Windows](https://img.shields.io/badge/platform-Windows%20beta-blue)
+![Windows](https://img.shields.io/badge/platform-Windows-blue)
+![Linux](https://img.shields.io/badge/platform-Linux-yellow)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
-![Version](https://img.shields.io/badge/version-1.4.3-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 
-**SchnellVPN** is a VPN client built on **Xray-core**, shipped for two platforms that share the
+**SchnellVPN** is a VPN client built on **Xray-core**, shipped for three platforms that share the
 same engine, link formats and honesty checks (no "connected" before data really flows):
 
-| | 🤖 **Android** (stable) | 🪟 **Windows** (beta) |
-| --- | --- | --- |
-| Version | **1.4.3** | **0.2.11** |
-| Built with | Kotlin + Jetpack Compose | Python + PySide6 |
-| Engine | AndroidLibXrayLite | Xray-core 26.x (`xray.exe`, bundled) |
-| Tunnel | TUN (VpnService) + hev-socks5-tunnel | SOCKS/HTTP + WinINET system proxy |
-| Extras | QR import, split tunneling, per-app auto-connect, hotspot sharing | subscription refresh, in-app update with rollback, connection log, bug-report email, live speed chart, real delay, 20 s data-flow monitor, profiles, tray, fa/en/de |
-| Download | [Latest APK](https://github.com/A-z-exe/SchnellVPN/releases/latest) | [Windows beta release](https://github.com/A-z-exe/SchnellVPN/releases) |
+| | 🤖 **Android** (stable) | 🪟 **Windows** | 🐧 **Linux** |
+| --- | --- | --- | --- |
+| Version | **1.5.0** | **1.5.0** | **1.5.0** |
+| Built with | Kotlin + Jetpack Compose | Python + PySide6 | Python + PySide6 |
+| Engine | AndroidLibXrayLite | Xray-core 26.x (`xray.exe`, bundled) | Xray-core (bundled) |
+| Tunnel | TUN (VpnService) + hev-socks5-tunnel | SOCKS/HTTP + WinINET system proxy | SOCKS/HTTP + GNOME (GSettings) proxy |
+| Extras | QR import, split tunneling, per-app auto-connect, hotspot sharing | in-app update with rollback, connection log, bug-report email, live speed chart, profiles, tray, fa/en/de | `.deb` + portable AppImage, tray, crash-safe proxy restore, fa/en/de |
+| Download | [Latest APK](https://github.com/A-z-exe/SchnellVPN/releases/latest) | `SchnellVPN.exe` / `SchnellVPN-Win7.exe` | `.deb` / `.AppImage` |
 
-Both platforms are listed together on the [Releases page](https://github.com/A-z-exe/SchnellVPN/releases):
-the Android build is the "Latest" release and the Windows beta sits right beside it.
+All three builds (`SchnellVPN.apk`, `SchnellVPN.exe`, `SchnellVPN-Win7.exe`, `.deb`, `.AppImage`)
+are attached to the same [release](https://github.com/A-z-exe/SchnellVPN/releases). The desktop
+apps update themselves from that release; the Android app checks the same feed.
 
-The Android app supports VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan and Shadowsocks,
-with multiple subscription profiles, QR import, direct config links, split tunneling,
+The Android app supports VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan, Shadowsocks and
+SOCKS5 links, with multiple subscription profiles, QR import, direct config links, split tunneling,
 per-app auto-connect, hotspot sharing, multi-language (فارسی / English / Deutsch) and in-app
 updates from GitHub.
 
 [⬇️ Download the latest APK](https://github.com/A-z-exe/SchnellVPN/releases/latest) · [🌐 Website](https://a-z-exe.github.io/SchnellVPN/) · [📦 Releases](https://github.com/A-z-exe/SchnellVPN/releases)
 
 کلاینت VPN برای اندروید با رابط کاربری Jetpack Compose که روی هسته‌ی Xray کار می‌کند.
-نسخهٔ ویندوز (بتا) با Python و PySide6 در پوشهٔ [`windows/`](windows/README.md) است و همان
-هسته، فرمت لینک‌ها و تست واقعی عبور داده را دارد؛ حالت TUN و split tunneling هنوز اضافه نشده است.
+نسخه‌های دسکتاپ با Python و PySide6 در پوشه‌های [`windows/`](windows/README.md) و
+[`linux/`](linux/README.md) هستند و همان هسته، فرمت لینک‌ها و تست واقعی عبور داده را دارند؛
+در لینوکس پروکسی سیستم از طریق GNOME/GSettings تنظیم می‌شود (بدون TUN).
 
 ## ✨ ویژگی‌ها
 
 ### اتصال و پروتکل
-- ✅ پشتیبانی از VLESS (TCP / WS / gRPC / HTTPUpgrade / XHTTP همراه TLS و Reality)، VMess، Trojan و Shadowsocks
+- ✅ پشتیبانی از VLESS (TCP / WS / gRPC / HTTPUpgrade / XHTTP همراه TLS و Reality)، VMess، Trojan، Shadowsocks و لینک‌های SOCKS5 (`socks://`)
+- ✅ **چندآهنگی (Mux) پیش‌فرض**: چند اتصال روی یک تونل TLS؛ برای لینک‌های دارای `flow` (XTLS Vision) به‌صورت خودکار خاموش می‌شود
+- ✅ **TCP Fast Open** برای حذف یک رفت‌وبرگشت در هر اتصال جدید
 - ✅ **تأخیر واقعی کانفیگ (Real Delay)** مثل v2rayNG/Hiddify: یک هسته‌ی موقت Xray برای هر کانفیگ و عبور یک درخواست HTTP واقعی؛ نمایش Timeout برای بالای ۴۰۰۰ms
 - ✅ پینگ مجدد سرور انتخاب‌شده از نوار پایین (در حالت متصل، از داخل تونل واقعی)
 - ✅ **تست عبور واقعی دیتا بعد از اتصال**: تا وقتی یک درخواست واقعی از داخل تونل موفق نشود، وضعیت «متصل» اعلام نمی‌شود؛ در صورت عدم عبور دیتا، اتصال قطع و خطا نمایش داده می‌شود.
 - ✅ **جلوگیری از اتصال بدون اینترنت**: اگر وای‌فای/دیتا خاموش باشد، اتصال و پینگ انجام نمی‌شود و عدد الکی نمایش داده نمی‌شود.
 - ✅ **تست پینگ خارج از VPN**: پینگ همیشه روی شبکه‌ی واقعی (Wi‑Fi/دیتا) انجام می‌شود و وقتی VPN روشن است از داخل تونل رد نمی‌شود.
 - ✅ **پینگ واقعی تونل در صفحه‌ی سرورها**: سرورِ متصل همان پینگ واقعی صفحه‌ی خانه را نشان می‌دهد.
-- ✅ **پایش مداوم عبور داده**: هر ۲۰ ثانیه تونل تست می‌شود؛ در صورت قطع داده «بدون داده» نمایش داده و اتصال خودکار قطع می‌شود.
+- ✅ **پایش مداوم عبور داده**: هر ۳۰ ثانیه تونل تست می‌شود (۹۰ ثانیه وقتی صفحه خاموش است)؛ در صورت قطع داده «بدون داده» نمایش داده و اتصال خودکار قطع می‌شود.
 - ✅ **اتصال هوشمند (بهترین سرور)**: دکمه‌ی ⚡ همه‌ی سرورها را تست و سریع‌ترین را وصل می‌کند و در صورت عدم پاسخ‌دهی **خودکار** به سرور بعدی سوئیچ می‌شود؛ انتخاب دستی سرور همیشه محترم است.
 - ✅ **ویرایش هر سرور**: تغییر نام و لینک کانفیگ با دکمه‌ی مداد.
 - ✅ **تغییر سرور در حین اتصال**: با انتخاب سرور جدید، اتصال کامل قطع و دوباره وصل می‌شود.
@@ -53,9 +58,11 @@ updates from GitHub.
 ### پروفایل و سرور
 - ✅ **پروفایل‌های مستقل (پروفایل ۱، ۲، ۳ …)**: هر اشتراک سرورها و سرور انتخابی خودش را دارد
 - ✅ ورود لینک Subscription (لیست ساده، Base64، یا JSON به سبک v2rayN)
-- ✅ **افزودن لینک مستقیم سرور** (vless / vmess / trojan / ss) بدون نیاز به اشتراک
+- ✅ **افزودن لینک مستقیم سرور** (vless / vmess / trojan / ss / socks) بدون نیاز به اشتراک
 - ✅ اسکن QR با دوربین
 - ✅ بروزرسانی اشتراک + تست پینگ خودکار + مرتب‌سازی از کمترین پینگ
+- ✅ **بهینه‌سازی مصرف اینترنت**: `gzip` + `ETag`/`Last-Modified` برای اشتراک‌ها (اگر تغییر نکرده باشد فقط پاسخ 304 دریافت می‌شود و فایل دوباره دانلود نمی‌شود)
+- ✅ **بهینه‌سازی مصرف باتری**: آمار هر ۲ ثانیه، توقف بازسازی اعلان هنگام خاموش بودن صفحه و کاهش پایش داده در حالت خواب صفحه
 - ✅ **اشتراک‌گذاری پروفایل** با لینک و **QR Code** (کپی یا ارسال به اپ‌های دیگر)
 
 ### اتوماسیون و شبکه
@@ -75,6 +82,7 @@ updates from GitHub.
 - ✅ **به‌روزرسانی درون‌برنامه از GitHub**: بررسی نسخه، دانلود، بررسی SHA-256 و اجرای نصب‌کننده
 
 > ⚠️ پلاگین‌های Shadowsocks (v2ray-plugin و …) پشتیبانی نمی‌شوند و این لینک‌ها موقع ورود رد می‌شوند.
+> پروتکل‌های Hysteria2 / TUIC / WireGuard در هسته‌ی Xray وجود ندارند؛ اگر اشتراکی فقط شامل این‌ها باشد، پیام مشخص نمایش داده می‌شود.
 
 ## 🧱 معماری
 

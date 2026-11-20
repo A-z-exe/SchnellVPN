@@ -63,14 +63,23 @@ def legacy_build() -> bool:
         return False
 
 
-def exe_asset(release: dict) -> Optional[dict]:
-    """Pick our own build: Win7 asset for the legacy exe, x64 exe otherwise."""
-    legacy = legacy_build()
+def _asset_kind(name: str) -> Optional[str]:
+    lower = name.lower()
+    if lower.endswith(".exe"):
+        return "win7" if "win7" in lower else "win"
+    if lower.endswith(".appimage"):
+        return "linux"
+    return None
+
+
+def asset_for_build(release: dict) -> Optional[dict]:
+    """Pick our own build: Linux AppImage, Win7 exe or the x64 exe."""
+    if sys.platform.startswith("linux"):
+        wanted = "linux"
+    else:
+        wanted = "win7" if legacy_build() else "win"
     for asset in release.get("assets") or []:
-        name = str(asset.get("name") or "").lower()
-        if not name.endswith(".exe"):
-            continue
-        if ("win7" in name) == legacy:
+        if _asset_kind(str(asset.get("name") or "")) == wanted:
             return asset
     return None
 
@@ -79,7 +88,7 @@ def pick_release(releases: list[dict], current: str) -> Optional[UpdateInfo]:
     for release in releases:
         if release.get("draft"):
             continue
-        asset = exe_asset(release)
+        asset = asset_for_build(release)
         if asset is None:
             continue
         tag = str(release.get("tag_name") or "")

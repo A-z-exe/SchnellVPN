@@ -118,4 +118,13 @@ class SubscriptionParseTest {
     fun byteOrderMarkIsTolerated() {
         assertEquals(1, SubscriptionFetcher.parseContent("\uFEFF" + vlessWs).size)
     }
+
+    @Test
+    fun socksShareLinksAreAccepted() {
+        val servers = SubscriptionFetcher.parseContent("socks://127.0.0.1:1080#local\nsocks://u:p@s.example.com:1081#remote")
+        assertEquals(2, servers.size)
+        assertEquals("SOCKS", servers[0].protocolLabel)
+        assertEquals("local", servers[0].name)
+        assertEquals("remote", servers[1].name)
+    }
 }

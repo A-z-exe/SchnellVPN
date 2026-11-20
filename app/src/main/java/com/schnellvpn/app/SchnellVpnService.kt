@@ -13,6 +13,7 @@ import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -36,7 +37,12 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         private const val TUN_IPV4 = "10.0.0.2"
         private const val TUN_IPV6 = "fd00::2"
         private const val TUN_MTU = 1500
-        private const val STATS_INTERVAL_MS = 1000L
+        private const val STATS_INTERVAL_MS = 2_000L
+        /** Screen off: nobody reads the speed chart, so poll rarely to spare the radio. */
+        private const val STATS_INTERVAL_SCREEN_OFF_MS = 15_000L
+        private const val HEALTH_INTERVAL_MS = 30_000L
+        private const val HEALTH_INTERVAL_SCREEN_OFF_MS = 90_000L
+        private const val NOTIF_REFRESH_MIN_MS = 5_000L
         private const val HOTSPOT_HTTP_PORT = 10809
     }
 
@@ -300,7 +306,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         healthJob = serviceScope.launch {
             var failures = 0
             while (isActive && isConnected.get()) {
-                delay(20_000)
+                delay(if (screenInteractive()) HEALTH_INTERVAL_MS else HEALTH_INTERVAL_SCREEN_OFF_MS)
                 if (!isConnected.get()) break
                 val ms = TunnelProbe.probeWithLatency(SOCKS_PORT)
                 if (ms != null) {
@@ -371,7 +377,9 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
             var lastTx = 0L
             var lastRx = 0L
             var lastAt = System.currentTimeMillis()
+            var lastNotifAt = 0L
             while (isActive && isConnected.get()) {
+                val interactive = screenInteractive()
                 // hev: [txPackets, txBytes, rxPackets, rxBytes] (cumulative since start)
                 val s = HevBridge.getStats()
                 if (s != null && s.size >= 4) {
@@ -385,14 +393,22 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                     val speed = delta * 1000L / dtMs // bytes/sec
                     lastTx = tx; lastRx = rx; lastAt = now
 
-                    val started = VpnStatus.connectStartMillis.value
-                    val secs = if (started > 0L) ((now - started) / 1000L).toInt() else 0
-                    updateNotificationRich(secs, speed, tx + rx)
+                    // Notification rebuilds are throttled and skipped entirely while
+                    // the screen is off; the live UI keeps getting VpnStatus updates.
+                    if (interactive && now - lastNotifAt >= NOTIF_REFRESH_MIN_MS) {
+                        val started = VpnStatus.connectStartMillis.value
+                        val secs = if (started > 0L) ((now - started) / 1000L).toInt() else 0
+                        updateNotificationRich(secs, speed, tx + rx)
+                        lastNotifAt = now
+                    }
                 }
-                delay(STATS_INTERVAL_MS)
+                delay(if (interactive) STATS_INTERVAL_MS else STATS_INTERVAL_SCREEN_OFF_MS)
             }
         }
     }
+
+    private fun screenInteractive(): Boolean =
+        (getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive ?: true
 
     /** اعلان غنی: مدت اتصال + سرعت لحظه‌ای + حجم کل. */
     private fun updateNotificationRich(secs: Int, bytesPerSec: Long, totalBytes: Long) {

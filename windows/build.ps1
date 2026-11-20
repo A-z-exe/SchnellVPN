@@ -23,7 +23,7 @@ if (-not $SkipInstall) {
 }
 
 if (-not $SkipTests) {
-    & $python -m pytest tests -q
+    & $python -m pytest "..\tests" -q
 }
 
 & $python tools/make_icon.py

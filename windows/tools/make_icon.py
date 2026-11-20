@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+REPO = ROOT.parent
+sys.path.insert(0, str(REPO))
 
 import schnellvpn  # noqa: E402,F401  (installs the PySide2 shim on Win7 builds)
 from PySide6.QtWidgets import QApplication  # noqa: E402

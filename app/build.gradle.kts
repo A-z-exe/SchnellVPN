@@ -12,8 +12,8 @@ android {
         applicationId = "com.schnellvpn.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.4.3"
+        versionCode = 10
+        versionName = "1.5.0"
 
         // hev-socks5-tunnel is built with its default JNI class (hev/htproxy/TProxyService),
         // which is declared in app/src/main/java/hev/htproxy/TProxyService.kt

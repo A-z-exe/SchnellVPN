@@ -6,7 +6,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QLockFile, Qt
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
@@ -21,6 +21,11 @@ INSTANCE_KEY = "SchnellVPN-single-instance"
 MUTEX_NAME = "Local\\SchnellVPN-single-instance"
 ERROR_ALREADY_EXISTS = 183
 _mutex_handle: int | None = None
+_lock_file: QLockFile | None = None
+
+
+def _platform() -> str:
+    return sys.platform
 
 
 def _acquire_mutex() -> bool:
@@ -40,6 +45,19 @@ def _acquire_mutex() -> bool:
         kernel32.CloseHandle(handle)
         return False
     _mutex_handle = handle
+    return True
+
+
+def _acquire_instance(data_dir: Path) -> bool:
+    """Windows uses the named mutex; elsewhere a lock file in the data dir."""
+    if _platform() == "win32":
+        return _acquire_mutex()
+    global _lock_file
+    lock = QLockFile(str(data_dir / "instance.lock"))
+    lock.setStaleLockTime(10_000)
+    if not lock.tryLock(50):
+        return False
+    _lock_file = lock
     return True
 
 
@@ -102,13 +120,16 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setWindowIcon(app_icon())
-
-    if not _acquire_mutex():
-        _notify_running()
-        return 0
+    if sys.platform != "win32":
+        QApplication.setDesktopFileName("schnellvpn")
 
     data_dir = app_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
+
+    if not _acquire_instance(data_dir):
+        _notify_running()
+        return 0
+
     TunnelClient.restore_stale_proxy()
 
     store = Store(data_dir=data_dir)
@@ -123,3 +144,5 @@ def main() -> int:
     finally:
         server.close()
         window.shutdown()
+        if _lock_file is not None:
+            _lock_file.unlock()

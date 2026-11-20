@@ -45,6 +45,15 @@ def test_named_mutex_rejects_a_second_copy(monkeypatch):
     assert app_module._acquire_mutex() is False
 
 
+def test_lock_file_rejects_a_second_copy(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "_platform", lambda: "linux")
+    assert app_module._acquire_instance(tmp_path) is True
+    assert app_module._acquire_instance(tmp_path) is False
+    if app_module._lock_file is not None:
+        app_module._lock_file.unlock()
+        app_module._lock_file = None
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="named mutex is Windows-only")
 def test_stale_last_error_does_not_block_the_first_copy(monkeypatch):
     # The exe once read a leftover ERROR_ALREADY_EXISTS (183) from an earlier

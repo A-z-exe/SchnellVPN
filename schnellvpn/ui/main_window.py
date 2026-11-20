@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import sys
 import threading
 import time
 from collections import deque
@@ -409,8 +410,18 @@ class MainWindow(QMainWindow):
                 if self.lang in RTL_LANGS
                 else Qt.LeftToRight
             )
-            family = "Tahoma" if self.lang in RTL_LANGS else "Segoe UI"
-            font = QFont(family)
+            rtl = self.lang in RTL_LANGS
+            if sys.platform == "win32":
+                families = ["Tahoma"] if rtl else ["Segoe UI"]
+            else:
+                families = (
+                    ["Vazirmatn", "Noto Sans Arabic", "Noto Sans", "DejaVu Sans"]
+                    if rtl
+                    else ["Noto Sans", "DejaVu Sans", "Liberation Sans"]
+                )
+            font = QFont(families[0])
+            if hasattr(font, "setFamilies"):
+                font.setFamilies(families)
             font.setPointSizeF(9.5)
             app.setFont(font)
         if persist:
@@ -1423,10 +1434,13 @@ class MainWindow(QMainWindow):
             self.shutdown()
             event.accept()
             return
-        if self.store.get_setting("minimize_to_tray", True):
+        tray_usable = self.tray.isVisible() and (
+            sys.platform == "win32" or QSystemTrayIcon.isSystemTrayAvailable()
+        )
+        if self.store.get_setting("minimize_to_tray", True) and tray_usable:
             event.ignore()
             self.hide()
-            if not self._tray_hint_shown and self.tray.isVisible():
+            if not self._tray_hint_shown:
                 self._tray_hint_shown = True
                 self.tray.showMessage(
                     "SchnellVPN",

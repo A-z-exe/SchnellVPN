@@ -1,11 +1,16 @@
 package com.schnellvpn.app
 
+import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
+import java.util.zip.GZIPInputStream
 
 /**
  * Downloads a subscription and converts it to a list of [VpnServer].
@@ -16,8 +21,53 @@ object SubscriptionFetcher {
 
     private const val MAX_BYTES = 5 * 1024 * 1024
     private const val MAX_REDIRECTS = 5
+    private const val CACHE_PREFS = "schnellvpn_sub_cache"
 
-    fun fetchAndParse(subUrl: String): List<VpnServer> = parseContent(downloadText(subUrl))
+    /**
+     * Downloads a subscription with gzip + conditional caching (ETag / Last-Modified):
+     * an unchanged subscription costs a 304 and reuses the cached body instead of
+     * downloading it again — less mobile data and radio time.
+     */
+    fun fetchAndParse(context: Context, subUrl: String): List<VpnServer> {
+        val url = subUrl.trim()
+        val key = sha256Hex(url)
+        val cacheDir = File(context.cacheDir, "subscriptions")
+        val cacheFile = File(cacheDir, "$key.txt")
+        val prefs = context.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
+        val cachedBody = if (cacheFile.isFile) {
+            runCatching { cacheFile.readText(Charsets.UTF_8) }.getOrNull()
+        } else null
+
+        val etag = if (cachedBody != null) prefs.getString("etag_$key", null) else null
+        val lastModified = if (cachedBody != null) prefs.getString("lm_$key", null) else null
+
+        val downloaded = download(url, etag, lastModified)
+        val body = when {
+            downloaded != null -> {
+                cacheDir.mkdirs()
+                runCatching { cacheFile.writeText(downloaded.body, Charsets.UTF_8) }
+                prefs.edit()
+                    .putString("etag_$key", downloaded.etag)
+                    .putString("lm_$key", downloaded.lastModified)
+                    .apply()
+                downloaded.body
+            }
+            cachedBody != null -> cachedBody // HTTP 304: nothing changed
+            else -> return emptyList()
+        }
+        return parseContent(body)
+    }
+
+    /** Share-link protocols the bundled Xray core cannot dial; used for a clear UI hint. */
+    fun unsupportedInText(rawInput: String): List<String> {
+        val lower = rawInput.lowercase()
+        val found = mutableListOf<String>()
+        if ("hysteria2://" in lower || "hy2://" in lower) found.add("Hysteria2")
+        if ("hysteria://" in lower) found.add("Hysteria")
+        if ("tuic://" in lower) found.add("TUIC")
+        if ("wireguard://" in lower || "warp://" in lower) found.add("WireGuard")
+        return found
+    }
 
     /** Pure function (no network) — the part covered by unit tests. */
     fun parseContent(rawInput: String): List<VpnServer> {
@@ -124,11 +174,12 @@ object SubscriptionFetcher {
             "vmess" -> "VMess"
             "trojan" -> "Trojan"
             "shadowsocks" -> "Shadowsocks"
+            "socks" -> "SOCKS"
             else -> outbound.optString("protocol").uppercase()
         }
     }
 
-    private val schemes = listOf("vless://", "vmess://", "trojan://", "ss://")
+    private val schemes = listOf("vless://", "vmess://", "trojan://", "ss://", "socks://")
 
     private fun startsWithKnownScheme(s: String) = schemes.any { s.startsWith(it, ignoreCase = true) }
 
@@ -142,8 +193,14 @@ object SubscriptionFetcher {
 
     // ---------------------------------------------------------------- network
 
-    private fun downloadText(urlStr: String): String {
-        var current = URL(urlStr.trim())
+    private class Download(val body: String, val etag: String?, val lastModified: String?)
+
+    /**
+     * Returns null for HTTP 304 (cached copy is still valid); throws on failure.
+     * Conditional headers are only sent to the original URL, not to redirect targets.
+     */
+    private fun download(urlStr: String, etag: String?, lastModified: String?): Download? {
+        var current = URL(urlStr)
         repeat(MAX_REDIRECTS + 1) {
             if (current.protocol != "http" && current.protocol != "https") {
                 throw IOException("Only http/https links are supported")
@@ -154,7 +211,11 @@ object SubscriptionFetcher {
                 conn.connectTimeout = 10_000
                 conn.readTimeout = 15_000
                 conn.setRequestProperty("User-Agent", "SchnellVPN/1.0")
+                conn.setRequestProperty("Accept-Encoding", "gzip")
+                if (etag != null) conn.setRequestProperty("If-None-Match", etag)
+                if (lastModified != null) conn.setRequestProperty("If-Modified-Since", lastModified)
                 val code = conn.responseCode
+                if (code == HttpURLConnection.HTTP_NOT_MODIFIED) return null
                 if (code in 300..399) {
                     val location = conn.getHeaderField("Location")
                         ?: throw IOException("Redirect without Location")
@@ -162,7 +223,11 @@ object SubscriptionFetcher {
                     return@repeat
                 }
                 if (code != 200) throw IOException("HTTP $code")
-                return readLimited(conn)
+                return Download(
+                    body = readLimited(conn),
+                    etag = conn.getHeaderField("ETag"),
+                    lastModified = conn.getHeaderField("Last-Modified")
+                )
             } finally {
                 conn.disconnect()
             }
@@ -171,7 +236,10 @@ object SubscriptionFetcher {
     }
 
     private fun readLimited(conn: HttpURLConnection): String {
-        conn.inputStream.use { input ->
+        val gzipped = conn.getHeaderField("Content-Encoding")?.contains("gzip", true) == true
+        val raw: InputStream = conn.inputStream
+        val input: InputStream = if (gzipped) GZIPInputStream(raw) else raw
+        input.use {
             val out = ByteArrayOutputStream()
             val chunk = ByteArray(8192)
             var total = 0
@@ -184,5 +252,10 @@ object SubscriptionFetcher {
             }
             return out.toString("UTF-8")
         }
+    }
+
+    private fun sha256Hex(text: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
     }
 }

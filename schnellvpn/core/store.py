@@ -21,6 +21,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 
+def _restrict(path: Path, mode: int) -> None:
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        pass
+
+
 class Store:
     def __init__(self, path: Optional[Path] = None, data_dir: Optional[Path] = None):
         root = Path(data_dir or app_data_dir())
@@ -53,6 +60,9 @@ class Store:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if os.name != "nt":
+            # profiles.json holds server credentials; other local users must not read it.
+            _restrict(self.path.parent, 0o700)
         payload = {
             "version": 1,
             "current_profile_id": self.current_profile_id,
@@ -61,6 +71,8 @@ class Store:
         }
         temp = self.path.with_suffix(".tmp")
         temp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        if os.name != "nt":
+            _restrict(temp, 0o600)
         os.replace(temp, self.path)
 
     @property

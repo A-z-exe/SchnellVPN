@@ -12,3 +12,6 @@ app/src/main/jni/hev-socks5-tunnel/
 *.aab
 *.jks
 *.keystore
+__pycache__/
+*.pyc
+.pytest_cache/

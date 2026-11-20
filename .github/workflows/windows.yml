@@ -2,7 +2,7 @@ name: Windows
 
 on:
   push:
-    tags: ["v*-windows*"]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -35,6 +35,7 @@ jobs:
           Expand-Archive -Path "$env:TEMP/Xray-windows-64.zip" -DestinationPath vendor/xray -Force
 
       - name: Unit tests
+        working-directory: ${{ github.workspace }}
         run: python -m pytest tests -q
 
       - name: Build the executable
@@ -58,25 +59,20 @@ jobs:
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          prerelease: true
-          body: |
-            **SchnellVPN for Windows — ${{ github.ref_name }}**
-
-            - **Windows 10/11 (64-bit):** download `SchnellVPN.exe` (Python + PySide6, bundled Xray-core).
-            - **Windows 7/8/8.1 (32 or 64-bit):** download `SchnellVPN-Win7.exe` (Python 3.8 + Qt 5, bundled Xray 1.8.3).
-
-            Run the exe and import a subscription or link. Each build updates itself
-            from this same release feed.
-
-            Android (stable) is released beside it:
-            https://github.com/A-z-exe/SchnellVPN/releases/latest
-
-            This is a pre-release, so the Android release stays the "Latest" download.
-          files: |
-            windows/dist/SchnellVPN.exe
-            windows/dist/SHA256SUMS.txt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The Android job creates the release; wait for it so all assets share one release.
+          for i in $(seq 1 120); do
+            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" dist/SchnellVPN.exe dist/SHA256SUMS.txt --clobber
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::release $GITHUB_REF_NAME was not created by the Android job"
+          exit 1
 
   build-win7:
     runs-on: windows-latest
@@ -130,9 +126,16 @@ jobs:
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          prerelease: true
-          files: |
-            windows/dist/SchnellVPN-Win7.exe
-            windows/dist/SHA256SUMS-Win7.txt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 120); do
+            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" dist/SchnellVPN-Win7.exe dist/SHA256SUMS-Win7.txt --clobber
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::release $GITHUB_REF_NAME was not created by the Android job"
+          exit 1

@@ -1,0 +1,6 @@
+# Normalize line endings so Linux scripts stay LF on every checkout
+* text=auto
+*.sh text eol=lf
+*.desktop text eol=lf
+*.py text eol=lf
+*.spec text eol=lf

@@ -11,7 +11,7 @@ icon = ROOT / "resources" / "schnellvpn.ico"
 
 a = Analysis(
     [str(ROOT / "launcher.py")],
-    pathex=[str(ROOT)],
+    pathex=[str(ROOT), str(ROOT.parent)],
     binaries=[],
     datas=datas,
     hiddenimports=[

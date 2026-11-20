@@ -1,0 +1,7 @@
+vendor/
+build/
+dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+resources/schnellvpn.png

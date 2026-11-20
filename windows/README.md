@@ -1,11 +1,11 @@
-# SchnellVPN for Windows (beta)
+# SchnellVPN for Windows
 
 A Windows client for [SchnellVPN](../README.md), built with **Python + PySide6** and the same
 **Xray-core** engine as the Android app. It is a port of the Android feature set that makes
 sense on a desktop: subscriptions, real latency measurement, verified data flow and a
 system proxy.
 
-> Status: beta (0.2.11). Connection, system proxy, probes, profiles, subscription refresh,
+> Status: stable (1.5.0). Connection, system proxy, probes, profiles, subscription refresh,
 > in-app updates and the live speed chart work. TUN mode and per-app split tunneling are not
 > implemented yet (see *Limitations*).
 
