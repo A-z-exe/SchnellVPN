@@ -508,7 +508,6 @@ object XrayConfigBuilder {
             put("settings", JSONObject().put("servers", JSONArray().put(JSONObject().apply {
                 put("address", host); put("port", validPort(port)); put("method", method); put("password", password)
             })))
-            put("mux", defaultMux())
         }
     }
 

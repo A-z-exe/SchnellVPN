@@ -92,6 +92,13 @@ class XrayProcess:
         self.config_path.write_text(
             json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        if sys.platform != "win32":
+            # The generated config carries server UUIDs/passwords.
+            for path, mode in ((self.config_path, 0o600), (self.config_path.parent, 0o700)):
+                try:
+                    path.chmod(mode)
+                except OSError:
+                    pass
 
         self._log_handle = open(self.log_path, "wb")
         creationflags = 0
