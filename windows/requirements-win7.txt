@@ -1,0 +1,5 @@
+# Windows 7 build: Python 3.8 (32-bit) + Qt 5.
+PySide2==5.15.2.1
+segno>=1.6
+pyinstaller==5.13.2
+pyinstaller-hooks-contrib==2023.10

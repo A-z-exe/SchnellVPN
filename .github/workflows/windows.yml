@@ -64,9 +64,11 @@ jobs:
           body: |
             **SchnellVPN for Windows — ${{ github.ref_name }}**
 
-            Single-file Windows x64 build (Python + PySide6, bundled Xray-core).
-            Download `SchnellVPN.exe`, run it, and import a subscription or link.
-            The app checks this same release feed for updates.
+            - **Windows 10/11 (64-bit):** download `SchnellVPN.exe` (Python + PySide6, bundled Xray-core).
+            - **Windows 7/8/8.1 (32 or 64-bit):** download `SchnellVPN-Win7.exe` (Python 3.8 + Qt 5, bundled Xray 1.8.3).
+
+            Run the exe and import a subscription or link. Each build updates itself
+            from this same release feed.
 
             Android (stable) is released beside it:
             https://github.com/A-z-exe/SchnellVPN/releases/latest
@@ -75,3 +77,62 @@ jobs:
           files: |
             windows/dist/SchnellVPN.exe
             windows/dist/SHA256SUMS.txt
+
+  build-win7:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+          architecture: "x86"
+
+      - name: Install dependencies
+        run: |
+          python -c "import struct, sys; assert struct.calcsize('P') == 4; print(sys.version)"
+          python -m pip install -r requirements-win7.txt
+
+      - name: Fetch Xray 1.8.3 (Windows x86)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path vendor/xray-win7 | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://github.com/XTLS/Xray-core/releases/download/v1.8.3/Xray-windows-32.zip" `
+            -OutFile "$env:TEMP/Xray-windows-32.zip"
+          Expand-Archive -Path "$env:TEMP/Xray-windows-32.zip" -DestinationPath vendor/xray-win7 -Force
+
+      - name: Build the Windows 7 executable
+        run: |
+          python tools/make_icon.py
+          python -m PyInstaller schnellvpn-win7.spec --noconfirm
+
+      - name: Verify the PE targets Windows 7 (x86, subsystem 6.1)
+        run: python tools/check_pe.py dist/SchnellVPN-Win7.exe x86 6.1
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/SchnellVPN-Win7.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  SchnellVPN-Win7.exe" | Out-File -Encoding ascii dist/SHA256SUMS-Win7.txt
+          Get-Content dist/SHA256SUMS-Win7.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SchnellVPN-windows-win7
+          path: |
+            windows/dist/SchnellVPN-Win7.exe
+            windows/dist/SHA256SUMS-Win7.txt
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          files: |
+            windows/dist/SchnellVPN-Win7.exe
+            windows/dist/SHA256SUMS-Win7.txt

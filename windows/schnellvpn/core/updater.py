@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -54,10 +55,22 @@ def is_newer(remote: str, current: str) -> bool:
     return False
 
 
+def legacy_build() -> bool:
+    """Windows 7 builds ship PySide2 (Qt 5), so PySide6 is absent."""
+    try:
+        return importlib.util.find_spec("PySide6") is None
+    except (ImportError, ValueError):
+        return False
+
+
 def exe_asset(release: dict) -> Optional[dict]:
+    """Pick our own build: Win7 asset for the legacy exe, x64 exe otherwise."""
+    legacy = legacy_build()
     for asset in release.get("assets") or []:
-        name = str(asset.get("name") or "")
-        if name.lower().endswith(".exe"):
+        name = str(asset.get("name") or "").lower()
+        if not name.endswith(".exe"):
+            continue
+        if ("win7" in name) == legacy:
             return asset
     return None
 

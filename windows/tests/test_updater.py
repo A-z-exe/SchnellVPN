@@ -157,3 +157,16 @@ def test_install_helper_uses_no_console_apps(tmp_path, monkeypatch):
     assert "schnellvpn-boot-9.9.9.ok" in text
     assert "schnellvpn-update.lock" in text
     assert "install.log" in text
+
+
+def test_asset_selection_follows_the_build(monkeypatch):
+    release = {
+        "assets": [
+            {"name": "SchnellVPN.exe", "browser_download_url": "x64"},
+            {"name": "SchnellVPN-Win7.exe", "browser_download_url": "win7"},
+        ]
+    }
+    monkeypatch.setattr(_updater, "legacy_build", lambda: False)
+    assert _updater.exe_asset(release)["browser_download_url"] == "x64"
+    monkeypatch.setattr(_updater, "legacy_build", lambda: True)
+    assert _updater.exe_asset(release)["browser_download_url"] == "win7"

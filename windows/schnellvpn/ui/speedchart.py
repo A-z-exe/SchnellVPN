@@ -46,7 +46,7 @@ class SpeedChart(QWidget):
         self._theme = "dark"
         self._idle = True
         self.setMinimumHeight(96)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
     def set_theme(self, theme: str) -> None:
         self._theme = theme if theme in THEMES else "dark"
@@ -67,7 +67,7 @@ class SpeedChart(QWidget):
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt override
         colors = THEMES[self._theme]
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.Antialiasing)
         area = QRectF(self.rect()).adjusted(4, 6, -4, -6)
         if area.width() <= 2 or area.height() <= 2:
             painter.end()
@@ -89,7 +89,7 @@ class SpeedChart(QWidget):
             painter.setFont(font)
             painter.drawText(
                 QRectF(area.left(), area.top(), area.width(), 14),
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
+                Qt.AlignRight | Qt.AlignTop,
                 format_rate(scale * 1024),
             )
 
@@ -103,7 +103,7 @@ class SpeedChart(QWidget):
                 filled.lineTo(area.right(), area.bottom())
                 filled.lineTo(area.left(), area.bottom())
                 filled.closeSubpath()
-                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setPen(Qt.NoPen)
                 gradient = QLinearGradient(0, area.top(), 0, area.bottom())
                 top = QColor(color)
                 top.setAlpha(70)
@@ -115,10 +115,10 @@ class SpeedChart(QWidget):
                 painter.drawPath(filled)
             pen = QPen(color)
             pen.setWidthF(1.8)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
             painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setBrush(Qt.NoBrush)
             painter.drawPath(line)
         painter.end()
 

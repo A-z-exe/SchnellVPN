@@ -5,9 +5,21 @@ A Windows client for [SchnellVPN](../README.md), built with **Python + PySide6**
 sense on a desktop: subscriptions, real latency measurement, verified data flow and a
 system proxy.
 
-> Status: beta (0.2.10). Connection, system proxy, probes, profiles, subscription refresh,
+> Status: beta (0.2.11). Connection, system proxy, probes, profiles, subscription refresh,
 > in-app updates and the live speed chart work. TUN mode and per-app split tunneling are not
 > implemented yet (see *Limitations*).
+
+Two builds are attached to every release:
+
+| File | Runs on | Stack |
+| --- | --- | --- |
+| `SchnellVPN.exe` | Windows 10/11 (64-bit) | Python 3.12, PySide6 (Qt 6), Xray 26.x |
+| `SchnellVPN-Win7.exe` | Windows 7, 8, 8.1 (32- and 64-bit) | Python 3.8 x86, PySide2 (Qt 5), Xray 1.8.3 |
+
+Qt 6 needs Windows 10, so the Windows 7 build ships Qt 5 behind a small
+`PySide6` → `PySide2` import shim; both build from the same source. The updater picks
+the asset that matches the running build (`SchnellVPN-Win7.exe` for the Qt 5 build), so
+each variant updates itself.
 
 ## Features
 
@@ -110,8 +122,17 @@ python -m pytest tests -q
 The executable is written to `dist\SchnellVPN.exe` with a SHA-256 printed at the end.
 `build.ps1 -SkipInstall -SkipTests` is useful once the environment is ready.
 
-GitHub Actions (`.github/workflows/windows.yml`) builds the exe on tags and manual runs and
-attaches it to the release.
+The Windows 7 build needs a 32-bit Python 3.8 (e.g. at `C:\Python38-32`):
+
+```powershell
+.\build-win7.ps1 -Python C:\Python38-32\python.exe   # -> dist\SchnellVPN-Win7.exe
+```
+
+It installs `requirements-win7.txt` (PySide2 5.15), downloads Xray 1.8.3 (x86) and rejects
+the result unless the PE header says x86 and subsystem 6.1 (`tools/check_pe.py`).
+
+GitHub Actions (`.github/workflows/windows.yml`) builds both exes on tags and manual runs
+and attaches them to the release.
 
 ## Where data lives
 
@@ -134,8 +155,11 @@ Android client; protect the profile and avoid pasting real links into bug report
 - Xray 26.x refuses VLESS/Trojan links without TLS/Reality when the server address is a
   public IP. The app says so on connect, and the real-delay probe skips only that config
   instead of losing the delay of every server.
-- Windows 10/11 x64 only; the bundled `xray.exe` is downloaded at build time, never
-  committed.
+- The bundled `xray.exe` is downloaded at build time, never committed. The Windows 7
+  build ships Xray 1.8.3, which predates the XHTTP transport, so XHTTP links only work
+  in the Windows 10/11 build.
+- Windows 7/8/8.1 users must take `SchnellVPN-Win7.exe`; the x64 `SchnellVPN.exe` needs
+  Windows 10 or 11.
 
 ## Licenses
 

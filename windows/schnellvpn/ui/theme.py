@@ -29,13 +29,13 @@ def download_icon(size: int = 18, color: QColor | None = None) -> QPixmap:
     override the typeface (Qt style sheets ignore widget setFont)."""
     tint = color or QColor("#E6EDF3")
     pm = QPixmap(size, size)
-    pm.fill(Qt.GlobalColor.transparent)
+    pm.fill(Qt.transparent)
     painter = QPainter(pm)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.Antialiasing)
     pen = QPen(tint)
     pen.setWidthF(max(1.6, size * 0.11))
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
     painter.setPen(pen)
 
     cx = size / 2
@@ -60,10 +60,10 @@ def gear_icon(size: int = 18, color: QColor | None = None) -> QPixmap:
     """Cogwheel glyph drawn with a painter; no icon font required."""
     tint = color or QColor("#E6EDF3")
     pm = QPixmap(size, size)
-    pm.fill(Qt.GlobalColor.transparent)
+    pm.fill(Qt.transparent)
     painter = QPainter(pm)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(Qt.NoPen)
     painter.setBrush(tint)
     center = size / 2
     tooth_w = size * 0.20
@@ -79,7 +79,7 @@ def gear_icon(size: int = 18, color: QColor | None = None) -> QPixmap:
         )
         painter.restore()
     ring = QPainterPath()
-    ring.setFillRule(Qt.FillRule.OddEvenFill)
+    ring.setFillRule(Qt.OddEvenFill)
     ring.addEllipse(QPointF(center, center), size * 0.33, size * 0.33)
     ring.addEllipse(QPointF(center, center), size * 0.135, size * 0.135)
     painter.drawPath(ring)
@@ -223,10 +223,10 @@ def _arrow_png(color: str) -> str:
     target = Path(tempfile.gettempdir()) / f"schnellvpn-arrow-v1-{color.lstrip('#')}.png"
     if not target.is_file():
         pixmap = QPixmap(20, 12)
-        pixmap.fill(Qt.GlobalColor.transparent)
+        pixmap.fill(Qt.transparent)
         painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(color))
         head = QPainterPath()
         head.moveTo(QPointF(5, 3))
@@ -248,9 +248,9 @@ def stylesheet(theme: str) -> str:
 def make_logo(size: int = 128) -> QPixmap:
     """The Android launcher icon: navy tile, white shield, orange bolt."""
     pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.GlobalColor.transparent)
+    pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.Antialiasing)
     unit = size / 100.0
 
     def point(x: float, y: float) -> QPointF:
@@ -263,7 +263,7 @@ def make_logo(size: int = 128) -> QPixmap:
     gradient = QLinearGradient(0, 0, 0, size)
     gradient.setColorAt(0.0, QColor("#0B192E"))
     gradient.setColorAt(1.0, QColor("#0F263E"))
-    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setPen(Qt.NoPen)
     painter.setBrush(gradient)
     painter.drawPath(tile)
 

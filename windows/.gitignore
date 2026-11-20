@@ -9,3 +9,5 @@ vendor/xray/
 !vendor/xray/.gitkeep
 resources/schnellvpn.ico
 resources/schnellvpn.png
+vendor/xray-win7/
+!vendor/xray-win7/.gitkeep

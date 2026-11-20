@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -166,27 +167,27 @@ class MainWindow(QMainWindow):
         self.table = QTableWidget(0, 5)
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(False)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(44)
-        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.table.setFocusPolicy(Qt.NoFocus)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
         for column in (1, 2, 3, 4):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         header.setHighlightSections(False)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
-        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_menu)
         self.table.doubleClicked.connect(self._row_activated)
         outer.addWidget(self.table, 1)
 
         self.empty_label = QLabel()
-        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_label.setAlignment(Qt.AlignCenter)
         self.empty_label.setObjectName("hint")
-        self.empty_label.setTextFormat(Qt.TextFormat.RichText)
+        self.empty_label.setTextFormat(Qt.RichText)
         self.empty_label.setOpenExternalLinks(True)
         outer.addWidget(self.empty_label)
 
@@ -209,8 +210,8 @@ class MainWindow(QMainWindow):
         self.title_label.setObjectName("title")
         self.version_label = QLabel(f"v{__version__}")
         self.version_label.setObjectName("version")
-        title_row.addWidget(self.title_label, 0, Qt.AlignmentFlag.AlignBottom)
-        title_row.addWidget(self.version_label, 0, Qt.AlignmentFlag.AlignBottom)
+        title_row.addWidget(self.title_label, 0, Qt.AlignBottom)
+        title_row.addWidget(self.version_label, 0, Qt.AlignBottom)
         title_row.addStretch(1)
         titles.addLayout(title_row)
         self.subtitle_label = QLabel()
@@ -222,7 +223,7 @@ class MainWindow(QMainWindow):
         self.profile_combo = QComboBox()
         self.profile_combo.setMinimumWidth(140)
         self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
-        self.profile_combo.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.profile_combo.setContextMenuPolicy(Qt.CustomContextMenu)
         self.profile_combo.customContextMenuRequested.connect(self._profile_menu)
         row.addWidget(self.profile_combo)
 
@@ -235,7 +236,7 @@ class MainWindow(QMainWindow):
 
         self.lang_button = QToolButton()
         self.lang_button.setText(LANG_NAMES.get(self.lang, "FA").upper())
-        self.lang_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.lang_button.setPopupMode(QToolButton.InstantPopup)
         lang_menu = QMenu(self.lang_button)
         for code, name in LANG_NAMES.items():
             action = lang_menu.addAction(name)
@@ -404,9 +405,9 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app:
             app.setLayoutDirection(
-                Qt.LayoutDirection.RightToLeft
+                Qt.RightToLeft
                 if self.lang in RTL_LANGS
-                else Qt.LayoutDirection.LeftToRight
+                else Qt.LeftToRight
             )
             family = "Tahoma" if self.lang in RTL_LANGS else "Segoe UI"
             font = QFont(family)
@@ -476,9 +477,9 @@ class MainWindow(QMainWindow):
             if item is None:
                 continue
             alignment = (
-                Qt.AlignmentFlag.AlignCenter
+                Qt.AlignCenter
                 if column in (2, 3, 4)
-                else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                else Qt.AlignLeft | Qt.AlignVCenter
             )
             item.setTextAlignment(alignment)
 
@@ -554,7 +555,7 @@ class MainWindow(QMainWindow):
             t(self.lang, "delete_profile"),
             t(self.lang, "delete_profile_confirm"),
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        if answer != QMessageBox.Yes:
             return
         if self.state == STATE_CONNECTED:
             self._disconnect_async(quiet=True)
@@ -571,22 +572,22 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(len(profile.servers))
         for row, server in enumerate(profile.servers):
             name_item = QTableWidgetItem(f"{server.icon}  {server.name}")
-            name_item.setData(Qt.ItemDataRole.UserRole, server.id)
+            name_item.setData(Qt.UserRole, server.id)
             name_item.setFlags(
-                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+                Qt.ItemIsEnabled | Qt.ItemIsSelectable
             )
             address_item = QTableWidgetItem(self._address_of(server.link))
             address_item.setForeground(QColor("#7C8CA2"))
             address_item.setFlags(
-                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+                Qt.ItemIsEnabled | Qt.ItemIsSelectable
             )
             type_item = QTableWidgetItem(server.label)
             type_item.setForeground(QColor("#8496AC"))
             ping_item = QTableWidgetItem(self._fmt_ms(self.pings.get(server.id)))
-            ping_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            ping_item.setTextAlignment(Qt.AlignCenter)
             ping_item.setForeground(self._ms_color(self.pings.get(server.id)))
             delay_item = QTableWidgetItem(self._fmt_ms(self.delays.get(server.id)))
-            delay_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            delay_item.setTextAlignment(Qt.AlignCenter)
             delay_item.setForeground(self._ms_color(self.delays.get(server.id)))
             cells = (name_item, address_item, type_item, ping_item, delay_item)
             for column, item in enumerate(cells):
@@ -666,7 +667,7 @@ class MainWindow(QMainWindow):
         item = self.table.item(rows[0].row(), 0)
         if item is None:
             return
-        server_id = int(item.data(Qt.ItemDataRole.UserRole))
+        server_id = int(item.data(Qt.UserRole))
         profile = self.store.profile
         server = next((s for s in profile.servers if s.id == server_id), None)
         if server is None:
@@ -691,7 +692,7 @@ class MainWindow(QMainWindow):
         item = self.table.item(row, 0)
         if item is None:
             return
-        server_id = int(item.data(Qt.ItemDataRole.UserRole))
+        server_id = int(item.data(Qt.UserRole))
         server = next(
             (s for s in self.store.profile.servers if s.id == server_id), None
         )
@@ -716,7 +717,7 @@ class MainWindow(QMainWindow):
 
     def _edit_server(self, server: VpnServer) -> None:
         dialog = EditServerDialog(self.lang, server, self)
-        if dialog.exec() != dialog.DialogCode.Accepted:
+        if dialog.exec() != QDialog.Accepted:
             return
         server.label = self._label_for(server.link)
         self.store.save()
@@ -728,7 +729,7 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self, t(self.lang, "delete_server"), t(self.lang, "confirm_delete")
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        if answer != QMessageBox.Yes:
             return
         if self.state == STATE_CONNECTED and self.current_server and self.current_server.id == server.id:
             self._disconnect_async(quiet=True)
@@ -749,7 +750,7 @@ class MainWindow(QMainWindow):
 
     def _import_servers(self) -> None:
         dialog = ImportDialog(self.lang, self)
-        if dialog.exec() != dialog.DialogCode.Accepted:
+        if dialog.exec() != QDialog.Accepted:
             return
         text = dialog.text().strip()
         self._set_hint(t(self.lang, "importing"))
@@ -777,11 +778,11 @@ class MainWindow(QMainWindow):
         task = self._start_task(work)
         task.ok.connect(
             lambda result: self._import_done(*result),
-            Qt.ConnectionType.QueuedConnection,
+            Qt.QueuedConnection,
         )
         task.err.connect(
             lambda exc: self._set_hint(f"{t(self.lang, 'import_fail')}: {exc}"),
-            Qt.ConnectionType.QueuedConnection,
+            Qt.QueuedConnection,
         )
 
     def _import_done(self, servers: list[VpnServer], urls: list[str]) -> None:
@@ -809,8 +810,8 @@ class MainWindow(QMainWindow):
             return fetched
 
         task = self._start_task(work)
-        task.ok.connect(self._refresh_done, Qt.ConnectionType.QueuedConnection)
-        task.err.connect(self._refresh_failed, Qt.ConnectionType.QueuedConnection)
+        task.ok.connect(self._refresh_done, Qt.QueuedConnection)
+        task.err.connect(self._refresh_failed, Qt.QueuedConnection)
 
     def _refresh_failed(self, exc: Exception) -> None:
         self.refresh_button.setEnabled(True)
@@ -894,7 +895,7 @@ class MainWindow(QMainWindow):
             lambda results: self._apply_pings(
                 {server.id: value for server, value in zip(servers, results)}
             ),
-            Qt.ConnectionType.QueuedConnection,
+            Qt.QueuedConnection,
         )
 
     def _apply_pings(self, results: dict[int, Optional[int]]) -> None:
@@ -911,10 +912,10 @@ class MainWindow(QMainWindow):
         self._set_hint(t(self.lang, "testing_delay"))
         delay_runner = XrayProcess(data_dir=self.data_dir / "delay")
         task = self._start_task(lambda: measure_delays(servers, runner=delay_runner))
-        task.ok.connect(self._apply_delays, Qt.ConnectionType.QueuedConnection)
+        task.ok.connect(self._apply_delays, Qt.QueuedConnection)
         task.err.connect(
             lambda exc: self._set_hint(f"{t(self.lang, 'delay_engine_failed')}: {exc}"),
-            Qt.ConnectionType.QueuedConnection,
+            Qt.QueuedConnection,
         )
 
     def _apply_delays(self, results: Optional[dict[int, Optional[int]]]) -> None:
@@ -938,9 +939,9 @@ class MainWindow(QMainWindow):
         self._speed_pending = True
         server = self.client.stats_server
         task = self._start_task(lambda: speedstats.read_totals(server))
-        task.ok.connect(self._speed_sample, Qt.ConnectionType.QueuedConnection)
+        task.ok.connect(self._speed_sample, Qt.QueuedConnection)
         task.err.connect(
-            lambda _exc: self._speed_sample(None), Qt.ConnectionType.QueuedConnection
+            lambda _exc: self._speed_sample(None), Qt.QueuedConnection
         )
 
     def _speed_sample(self, current: Optional[tuple[int, int]]) -> None:
@@ -997,8 +998,8 @@ class MainWindow(QMainWindow):
         self.update_button.setEnabled(False)
         self._set_hint(t(self.lang, "checking_update"))
         task = self._start_task(lambda: updater.check(__version__))
-        task.ok.connect(self._update_checked, Qt.ConnectionType.QueuedConnection)
-        task.err.connect(self._update_check_failed, Qt.ConnectionType.QueuedConnection)
+        task.ok.connect(self._update_checked, Qt.QueuedConnection)
+        task.err.connect(self._update_check_failed, Qt.QueuedConnection)
 
     def _update_checked(self, info: Optional[updater.UpdateInfo]) -> None:
         self.update_button.setEnabled(True)
@@ -1015,7 +1016,7 @@ class MainWindow(QMainWindow):
             t(self.lang, "check_update"),
             t(self.lang, "update_available", version=info.version),
         )
-        if answer == QMessageBox.StandardButton.Yes:
+        if answer == QMessageBox.Yes:
             self._download_update(info)
 
     def _update_check_failed(self, exc: Exception) -> None:
@@ -1026,10 +1027,10 @@ class MainWindow(QMainWindow):
         self.update_button.setEnabled(False)
         self._set_hint(t(self.lang, "downloading_update", version=info.version))
         task = self._start_task(lambda: updater.download(info))
-        task.ok.connect(self._update_downloaded, Qt.ConnectionType.QueuedConnection)
+        task.ok.connect(self._update_downloaded, Qt.QueuedConnection)
         task.err.connect(
             lambda exc: self._update_download_failed(exc),
-            Qt.ConnectionType.QueuedConnection,
+            Qt.QueuedConnection,
         )
 
     def _update_downloaded(self, path: Path) -> None:
@@ -1044,7 +1045,7 @@ class MainWindow(QMainWindow):
             t(self.lang, "check_update"),
             t(self.lang, "restart_for_update"),
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        if answer != QMessageBox.Yes:
             return
         self._installing = True
         try:
@@ -1092,9 +1093,9 @@ class MainWindow(QMainWindow):
         )
         task.ok.connect(
             lambda latency: self._connected(server, int(latency)),
-            Qt.ConnectionType.QueuedConnection,
+            Qt.QueuedConnection,
         )
-        task.err.connect(self._connect_failed, Qt.ConnectionType.QueuedConnection)
+        task.err.connect(self._connect_failed, Qt.QueuedConnection)
 
     def _connected(self, server: VpnServer, latency: int) -> None:
         self._busy = False
@@ -1140,11 +1141,11 @@ class MainWindow(QMainWindow):
         task = self._start_task(self.client.disconnect)
         task.ok.connect(
             lambda _result=None: self._disconnected(quiet),
-            Qt.ConnectionType.QueuedConnection,
+            Qt.QueuedConnection,
         )
         task.err.connect(
             lambda exc: self._disconnected(quiet),
-            Qt.ConnectionType.QueuedConnection,
+            Qt.QueuedConnection,
         )
 
     def _disconnected(self, quiet: bool) -> None:
@@ -1170,11 +1171,11 @@ class MainWindow(QMainWindow):
         task = self._start_task(self.client.disconnect)
         task.ok.connect(
             lambda _result=None: self._reconnect_after_stop(server),
-            Qt.ConnectionType.QueuedConnection,
+            Qt.QueuedConnection,
         )
         task.err.connect(
             lambda exc: self._reconnect_after_stop(server),
-            Qt.ConnectionType.QueuedConnection,
+            Qt.QueuedConnection,
         )
 
     def _reconnect_after_stop(self, server: VpnServer) -> None:
@@ -1199,9 +1200,9 @@ class MainWindow(QMainWindow):
         socks = int(self.store.get_setting("socks_port", 10808))
 
         task = self._start_task(lambda: probe_with_latency(socks, 4000))
-        task.ok.connect(self._monitor_result, Qt.ConnectionType.QueuedConnection)
+        task.ok.connect(self._monitor_result, Qt.QueuedConnection)
         task.err.connect(
-            lambda exc: self._monitor_result(None), Qt.ConnectionType.QueuedConnection
+            lambda exc: self._monitor_result(None), Qt.QueuedConnection
         )
 
     def _monitor_result(self, latency: Optional[int]) -> None:
@@ -1215,7 +1216,7 @@ class MainWindow(QMainWindow):
                 self.tray.showMessage(
                     "SchnellVPN",
                     t(self.lang, "auto_disconnect"),
-                    QSystemTrayIcon.MessageIcon.Warning,
+                    QSystemTrayIcon.Warning,
                     4000,
                 )
             self._disconnect_async(quiet=True)
@@ -1349,7 +1350,7 @@ class MainWindow(QMainWindow):
             version=__version__,
             on_check_updates=self._check_update,
         )
-        if dialog.exec() != dialog.DialogCode.Accepted:
+        if dialog.exec() != QDialog.Accepted:
             return
         values = dialog.values()
         language_changed = values["language"] != self.lang
@@ -1380,8 +1381,8 @@ class MainWindow(QMainWindow):
 
     def _tray_activated(self, reason) -> None:
         if reason in (
-            QSystemTrayIcon.ActivationReason.Trigger,
-            QSystemTrayIcon.ActivationReason.DoubleClick,
+            QSystemTrayIcon.Trigger,
+            QSystemTrayIcon.DoubleClick,
         ):
             self._show_window()
 
@@ -1430,7 +1431,7 @@ class MainWindow(QMainWindow):
                 self.tray.showMessage(
                     "SchnellVPN",
                     t(self.lang, "tray_hint"),
-                    QSystemTrayIcon.MessageIcon.Information,
+                    QSystemTrayIcon.Information,
                     3000,
                 )
             return
@@ -1441,7 +1442,7 @@ class MainWindow(QMainWindow):
 
     def _start_task(self, fn: Callable[[], object]) -> Task:
         task = Task(fn, self)
-        task.ok.connect(lambda _result: None, Qt.ConnectionType.QueuedConnection)
+        task.ok.connect(lambda _result: None, Qt.QueuedConnection)
         self._tasks.append(task)
         if len(self._tasks) > 64:
             self._tasks = [t for t in self._tasks if t is not None][-32:]

@@ -32,6 +32,7 @@ def _acquire_mutex() -> bool:
     kernel32.CreateMutexW.restype = ctypes.c_void_p
     kernel32.CreateMutexW.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p)
     kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    kernel32.SetLastError(0)
     handle = kernel32.CreateMutexW(None, 0, MUTEX_NAME)
     if not handle:
         return True
@@ -73,8 +74,8 @@ def _listen_for_relaunch(window: MainWindow) -> QLocalServer:
             conn.readAll()
             conn.disconnectFromServer()
         window.setWindowState(
-            (window.windowState() & ~Qt.WindowState.WindowMinimized)
-            | Qt.WindowState.WindowActive
+            (window.windowState() & ~Qt.WindowMinimized)
+            | Qt.WindowActive
         )
         window.show()
         window.raise_()

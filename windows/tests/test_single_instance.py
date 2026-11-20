@@ -8,6 +8,8 @@ import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+
+import schnellvpn  # noqa: F401  (installs the PySide2 shim on Win7 builds)
 from PySide6.QtWidgets import QApplication, QMainWindow
 
 from schnellvpn import app as app_module
@@ -41,3 +43,14 @@ def test_named_mutex_rejects_a_second_copy(monkeypatch):
     monkeypatch.setattr(app_module, "MUTEX_NAME", f"Local\\SchnellVPN-test-{os.getpid()}")
     assert app_module._acquire_mutex() is True
     assert app_module._acquire_mutex() is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="named mutex is Windows-only")
+def test_stale_last_error_does_not_block_the_first_copy(monkeypatch):
+    # The exe once read a leftover ERROR_ALREADY_EXISTS (183) from an earlier
+    # API call and refused to start at all.
+    import ctypes
+
+    monkeypatch.setattr(app_module, "MUTEX_NAME", f"Local\\SchnellVPN-stale-{os.getpid()}")
+    ctypes.windll.kernel32.SetLastError(183)
+    assert app_module._acquire_mutex() is True

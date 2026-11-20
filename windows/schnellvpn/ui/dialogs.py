@@ -62,8 +62,8 @@ class BaseDialog(QDialog):
 
 def _buttons(dialog: QDialog, lang: str, save_key: str = "save") -> QDialogButtonBox:
     box = QDialogButtonBox()
-    accept = box.addButton(t(lang, save_key), QDialogButtonBox.ButtonRole.AcceptRole)
-    cancel = box.addButton(t(lang, "cancel"), QDialogButtonBox.ButtonRole.RejectRole)
+    accept = box.addButton(t(lang, save_key), QDialogButtonBox.AcceptRole)
+    cancel = box.addButton(t(lang, "cancel"), QDialogButtonBox.RejectRole)
     accept.setDefault(True)
     cancel.setAutoDefault(False)
     box.accepted.connect(dialog.accept)
@@ -85,7 +85,7 @@ class ImportDialog(BaseDialog):
         layout.addWidget(hint)
 
         self.editor = QPlainTextEdit()
-        self.editor.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.editor.setLayoutDirection(Qt.LeftToRight)
         self.editor.setPlaceholderText(self.tr_("import_placeholder"))
         self.editor.setMinimumHeight(150)
         layout.addWidget(self.editor)
@@ -96,8 +96,8 @@ class ImportDialog(BaseDialog):
         layout.addWidget(self.error)
 
         box = QDialogButtonBox()
-        ok = box.addButton(self.tr_("import_button"), QDialogButtonBox.ButtonRole.AcceptRole)
-        cancel = box.addButton(self.tr_("cancel"), QDialogButtonBox.ButtonRole.RejectRole)
+        ok = box.addButton(self.tr_("import_button"), QDialogButtonBox.AcceptRole)
+        cancel = box.addButton(self.tr_("cancel"), QDialogButtonBox.RejectRole)
         ok.setDefault(True)
         cancel.setAutoDefault(False)
         ok.clicked.connect(self._accept)
@@ -128,7 +128,7 @@ class EditServerDialog(BaseDialog):
 
         self.name_edit = QLineEdit(server.name)
         self.link_edit = QPlainTextEdit(server.link)
-        self.link_edit.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.link_edit.setLayoutDirection(Qt.LeftToRight)
         self.link_edit.setMinimumHeight(110)
         form.addRow(self.tr_("name"), self.name_edit)
         form.addRow(self.tr_("link"), self.link_edit)
@@ -225,10 +225,10 @@ class SettingsDialog(BaseDialog):
         binary = find_binary()
         engine_caption = QLabel(f"{self.tr_('engine')}:")
         engine_path = QLabel(str(binary) if binary else self.tr_("engine_missing"))
-        engine_path.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        engine_path.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        engine_path.setLayoutDirection(Qt.LeftToRight)
+        engine_path.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         engine_path.setWordWrap(True)
-        engine_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        engine_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
         for label in (engine_caption, engine_path):
             label.setStyleSheet("color: #7C8CA2; font-size: 11px;")
         layout.addWidget(engine_caption)
@@ -277,7 +277,7 @@ class SettingsDialog(BaseDialog):
 
         engine = QLabel(f"{self.tr_('engine')}: Xray-core")
         engine.setStyleSheet("color: #7C8CA2; font-size: 11.5px;")
-        engine.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        engine.setLayoutDirection(Qt.LeftToRight)
         layout.addWidget(engine)
 
         developer = QLabel(
@@ -299,7 +299,7 @@ class SettingsDialog(BaseDialog):
             f'<a {link_style()} href="mailto:{REPORT_EMAIL}">{REPORT_EMAIL}</a>'
         )
         email.setOpenExternalLinks(True)
-        email.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        email.setLayoutDirection(Qt.LeftToRight)
         layout.addWidget(email)
 
         repository = QLabel(
@@ -358,22 +358,22 @@ class LogsDialog(BaseDialog):
                 self.tr_("source"),
             ]
         )
-        self.conn_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.conn_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.conn_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.conn_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.conn_view.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.conn_view.setSelectionMode(QAbstractItemView.SingleSelection)
         self.conn_view.verticalHeader().setVisible(False)
         self.conn_view.verticalHeader().setDefaultSectionSize(30)
-        self.conn_view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.conn_view.setFocusPolicy(Qt.NoFocus)
         header = self.conn_view.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         header.setHighlightSections(False)
         conn_layout.addWidget(self.conn_view)
         self.conn_empty = QLabel(self.tr_("no_connections"))
         self.conn_empty.setObjectName("hint")
-        self.conn_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.conn_empty.setAlignment(Qt.AlignCenter)
         conn_layout.addWidget(self.conn_empty)
         self.tabs.addTab(connections, self.tr_("connections"))
 
@@ -382,8 +382,8 @@ class LogsDialog(BaseDialog):
         logs_layout.setContentsMargins(10, 10, 10, 10)
         self.view = QPlainTextEdit()
         self.view.setReadOnly(True)
-        self.view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.view.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.view.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.view.setLayoutDirection(Qt.LeftToRight)
         font = self.view.font()
         font.setFamily("Cascadia Mono")
         font.setPointSize(9)
@@ -448,9 +448,9 @@ class LogsDialog(BaseDialog):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setTextAlignment(
-                    Qt.AlignmentFlag.AlignCenter
+                    Qt.AlignCenter
                     if column == 1
-                    else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                    else Qt.AlignLeft | Qt.AlignVCenter
                 )
                 if column == 3:
                     item.setForeground(QColor("#7C8CA2"))
@@ -502,8 +502,8 @@ def qr_pixmap(text: str, size: int = 220) -> QPixmap:
     return pixmap.scaled(
         size,
         size,
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
+        Qt.KeepAspectRatio,
+        Qt.SmoothTransformation,
     )
 
 
@@ -524,15 +524,15 @@ class ShareDialog(BaseDialog):
         layout.setSpacing(12)
 
         qr = QLabel()
-        qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        qr.setAlignment(Qt.AlignCenter)
         qr.setPixmap(qr_pixmap(text))
         layout.addWidget(qr)
 
         link = QLabel(text)
         link.setWordWrap(True)
-        link.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        link.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        link.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        link.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        link.setLayoutDirection(Qt.LeftToRight)
+        link.setAlignment(Qt.AlignCenter)
         link.setStyleSheet("color: #7C8CA2; font-size: 11px;")
         layout.addWidget(link)
 
@@ -549,7 +549,7 @@ class ShareDialog(BaseDialog):
         self._copied_key = copied_key
         self._feedback = QLabel("")
         self._feedback.setStyleSheet("color: #34D399; font-size: 11px;")
-        self._feedback.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._feedback.setAlignment(Qt.AlignCenter)
         layout.addWidget(self._feedback)
 
     def _copy(self) -> None:
@@ -583,7 +583,7 @@ class AboutDialog(BaseDialog):
         layout.addSpacing(6)
         engine = QLabel(f"{self.tr_('engine')}: Xray-core")
         engine.setStyleSheet("color: #7C8CA2; font-size: 11.5px;")
-        engine.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        engine.setLayoutDirection(Qt.LeftToRight)
         layout.addWidget(engine)
 
         developer = QLabel(
@@ -610,6 +610,6 @@ class AboutDialog(BaseDialog):
 
         layout.addStretch(1)
         box = QDialogButtonBox()
-        close = box.addButton(self.tr_("close"), QDialogButtonBox.ButtonRole.AcceptRole)
+        close = box.addButton(self.tr_("close"), QDialogButtonBox.AcceptRole)
         close.clicked.connect(self.accept)
         layout.addWidget(box)
