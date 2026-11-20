@@ -40,7 +40,7 @@ updates from GitHub.
 
 ### اتصال و پروتکل
 - ✅ پشتیبانی از VLESS (TCP / WS / gRPC / HTTPUpgrade / XHTTP همراه TLS و Reality)، VMess، Trojan، Shadowsocks و لینک‌های SOCKS5 (`socks://`)
-- ✅ **چندآهنگی (Mux) پیش‌فرض**: چند اتصال روی یک تونل TLS؛ برای لینک‌های دارای `flow` (XTLS Vision) به‌صورت خودکار خاموش می‌شود
+- ✅ **Mux اختیاری با `?mux=8` روی لینک**: چند اتصال روی یک تونل TLS برای کاهش handshake؛ پیش‌فرض خاموش است (سرورهای sing-box فقط smux/yamux را می‌فهمند) و برای XTLS Vision هرگز فعال نمی‌شود
 - ✅ **TCP Fast Open** برای حذف یک رفت‌وبرگشت در هر اتصال جدید
 - ✅ **تأخیر واقعی کانفیگ (Real Delay)** مثل v2rayNG/Hiddify: یک هسته‌ی موقت Xray برای هر کانفیگ و عبور یک درخواست HTTP واقعی؛ نمایش Timeout برای بالای ۴۰۰۰ms
 - ✅ پینگ مجدد سرور انتخاب‌شده از نوار پایین (در حالت متصل، از داخل تونل واقعی)

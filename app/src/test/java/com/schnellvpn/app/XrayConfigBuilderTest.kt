@@ -296,21 +296,25 @@ class XrayConfigBuilderTest {
     }
 
     @Test
-    fun plainLinksGetMuxAndVisionDoesNot() {
+    fun muxIsOptInAndVisionNeverGetsIt() {
         val plain = XrayConfigBuilder.parseOutbound("vless://$uuid@example.com:443?security=tls#p")
-        assertTrue(plain.getJSONObject("mux").getBoolean("enabled"))
-        assertEquals(8, plain.getJSONObject("mux").getInt("concurrency"))
+        assertFalse(plain.getJSONObject("mux").getBoolean("enabled"))
 
         val vision = XrayConfigBuilder.parseOutbound(
-            "vless://$uuid@example.com:443?security=reality&pbk=K&flow=xtls-rprx-vision#v"
+            "vless://$uuid@example.com:443?security=reality&pbk=K&flow=xtls-rprx-vision&mux=8#v"
         )
         assertFalse(vision.getJSONObject("mux").getBoolean("enabled"))
 
+        val muxed = XrayConfigBuilder.parseOutbound("vless://$uuid@example.com:443?security=tls&mux=8#m")
+        assertTrue(muxed.getJSONObject("mux").getBoolean("enabled"))
+        assertEquals(8, muxed.getJSONObject("mux").getInt("concurrency"))
+
         val vmess = b64("""{"add":"v.example.com","port":"443","id":"$uuid","net":"ws","tls":"tls"}""")
-        assertTrue(XrayConfigBuilder.parseOutbound("vmess://$vmess").getJSONObject("mux").getBoolean("enabled"))
-        assertTrue(
-            XrayConfigBuilder.parseOutbound("trojan://pw@t.example.com:443").getJSONObject("mux").getBoolean("enabled")
-        )
+        assertFalse(XrayConfigBuilder.parseOutbound("vmess://$vmess").getJSONObject("mux").getBoolean("enabled"))
+
+        val trojan = XrayConfigBuilder.parseOutbound("trojan://pw@t.example.com:443?mux=4")
+        assertTrue(trojan.getJSONObject("mux").getBoolean("enabled"))
+        assertEquals(4, trojan.getJSONObject("mux").getInt("concurrency"))
     }
 
     @Test

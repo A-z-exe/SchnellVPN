@@ -384,9 +384,17 @@ object XrayConfigBuilder {
         }
     }
 
-    private fun defaultMux(enabled: Boolean = true) = JSONObject().apply {
+    private fun defaultMux(enabled: Boolean = false) = JSONObject().apply {
         put("enabled", enabled)
         put("concurrency", if (enabled) 8 else -1)
+    }
+
+    /** Opt-in via `?mux=8`: mux.cool breaks servers that only speak smux/yamux (e.g. sing-box). */
+    private fun muxFor(params: Map<String, String>): JSONObject {
+        val concurrency = params["mux"]?.toIntOrNull() ?: 0
+        return defaultMux(enabled = concurrency > 0).apply {
+            if (concurrency > 0) put("concurrency", concurrency.coerceIn(1, 128))
+        }
     }
 
     // ---------------------------------------------------------------- protocols
@@ -407,8 +415,8 @@ object XrayConfigBuilder {
                 }))
             })))
             put("streamSettings", buildStream(u.params, u.host, "none"))
-            // XTLS Vision does not support mux; plain links benefit from it (fewer handshakes = less data).
-            put("mux", defaultMux(enabled = flow.isEmpty()))
+            // XTLS Vision does not support mux; otherwise only when the link asks for it.
+            put("mux", if (flow.isEmpty()) muxFor(u.params) else defaultMux())
         }
     }
 
@@ -470,7 +478,7 @@ object XrayConfigBuilder {
                 put("address", u.host); put("port", port); put("password", password)
             })))
             put("streamSettings", buildStream(u.params, u.host, "tls"))
-            put("mux", defaultMux())
+            put("mux", muxFor(u.params))
         }
     }
 
