@@ -79,6 +79,26 @@ def server(server_id, name):
     return VpnServer(id=server_id, name=name, label="VMess", link=f"vmess://{name}")
 
 
+def test_ping_header_sorts_lowest_first(tmp_path, qt_app):
+    window = make_window(
+        tmp_path, qt_app, [server(1, "slow"), server(2, "fast"), server(3, "mid")]
+    )
+    window.pings = {1: 300, 2: 40, 3: 120}
+    window.refresh_table()
+    header = window.table.horizontalHeader()
+    try:
+        header.sectionClicked.emit(3)
+        assert [s.id for s in window.store.profile.servers] == [2, 3, 1]
+        assert header.sortIndicatorSection() == 3
+        assert header.sortIndicatorOrder() == mw.Qt.AscendingOrder
+        header.sectionClicked.emit(3)
+        assert [s.id for s in window.store.profile.servers] == [1, 3, 2]
+        assert header.sortIndicatorOrder() == mw.Qt.DescendingOrder
+    finally:
+        window.shutdown()
+        delete_qt(window)
+
+
 def test_smart_connect_picks_the_fastest(tmp_path, qt_app, monkeypatch):
     window = make_window(
         tmp_path, qt_app, [server(1, "slow"), server(2, "fast"), server(3, "dead")]

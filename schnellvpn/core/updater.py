@@ -178,6 +178,11 @@ def sha256_of(path: Path) -> str:
 def download(info: UpdateInfo, target_dir: Optional[Path] = None) -> Path:
     """Fetch the update to a .part file, verify it, then publish it.
 
+    A dropped connection never loses what was already downloaded: the next
+    attempt asks for the remaining bytes with an HTTP Range header and appends
+    them to the .part file (GitHub's release CDN supports ranges). Servers that
+    ignore the range restart the file instead of corrupting it.
+
     The final name only appears once the file is complete and verified, so an
     installer helper can never pick up a half-written exe.
     """
@@ -185,52 +190,84 @@ def download(info: UpdateInfo, target_dir: Optional[Path] = None) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"SchnellVPN-{info.version}.exe"
     part = target.with_name(target.name + ".part")
-    request = urllib.request.Request(
-        info.url, headers={"User-Agent": f"{USER_AGENT}/{info.version}"}
-    )
     error: Optional[Exception] = None
-    for attempt in range(3):
+    for attempt in range(4):
         if attempt:
             time.sleep(2)
-        part.unlink(missing_ok=True)
+        offset = part.stat().st_size if part.is_file() else 0
+        if offset and info.size and offset > info.size:
+            part.unlink(missing_ok=True)
+            offset = 0
+        if offset and info.size and offset == info.size:
+            try:
+                _verify(info, part)
+            except RuntimeError:
+                part.unlink(missing_ok=True)
+                offset = 0
+            else:
+                part.replace(target)
+                _clear_zone_marker(target)
+                return target
+        headers = {"User-Agent": f"{USER_AGENT}/{info.version}"}
+        if offset:
+            headers["Range"] = f"bytes={offset}-"
+        request = urllib.request.Request(info.url, headers=headers)
         try:
-            _fetch(request, part)
+            _fetch(request, part, offset)
             _verify(info, part)
         except urllib.error.HTTPError as exc:
+            if exc.code == 416:
+                # The .part file no longer matches the remote file; start clean.
+                part.unlink(missing_ok=True)
+                error = RuntimeError("range not satisfiable")
+                continue
             part.unlink(missing_ok=True)
             raise RuntimeError(f"HTTP {exc.code}") from exc
         except RuntimeError as exc:
-            part.unlink(missing_ok=True)
-            if str(exc) == "update file is too large":
+            message = str(exc)
+            if message in ("update file is too large", "update is not a Windows program"):
+                part.unlink(missing_ok=True)
                 raise
+            if message == "checksum mismatch":
+                part.unlink(missing_ok=True)
+            # "incomplete download" keeps the .part file so the next attempt resumes.
             error = exc
             continue
         except (urllib.error.URLError, OSError) as exc:
-            part.unlink(missing_ok=True)
             error = exc
             continue
         part.replace(target)
-        try:
-            # A "mark of the web" makes antivirus scan the fresh exe on first start,
-            # which can race PyInstaller's temp extraction ("python312.dll missing").
-            os.remove(str(target) + ":Zone.Identifier")
-        except OSError:
-            pass
+        _clear_zone_marker(target)
         return target
     raise RuntimeError(f"network error: {_short_reason(error)}")
 
 
-def _fetch(request: urllib.request.Request, part: Path) -> None:
-    with _open(request, 30) as response, part.open("wb") as out:
-        done = 0
-        while True:
-            chunk = response.read(256 * 1024)
-            if not chunk:
-                break
-            done += len(chunk)
-            if done > MAX_BYTES:
-                raise RuntimeError("update file is too large")
-            out.write(chunk)
+def _clear_zone_marker(target: Path) -> None:
+    try:
+        # A "mark of the web" makes antivirus scan the fresh exe on first start,
+        # which can race PyInstaller's temp extraction ("python312.dll missing").
+        os.remove(str(target) + ":Zone.Identifier")
+    except OSError:
+        pass
+
+
+def _fetch(request: urllib.request.Request, part: Path, offset: int = 0) -> None:
+    with _open(request, 30) as response:
+        status = int(getattr(response, "status", 0) or 0)
+        if offset and status != 206:
+            # The server ignored the Range header and sent the whole file.
+            offset = 0
+        mode = "ab" if offset else "wb"
+        with part.open(mode) as out:
+            done = offset
+            while True:
+                chunk = response.read(256 * 1024)
+                if not chunk:
+                    break
+                done += len(chunk)
+                if done > MAX_BYTES:
+                    raise RuntimeError("update file is too large")
+                out.write(chunk)
 
 
 def _verify(info: UpdateInfo, part: Path) -> None:

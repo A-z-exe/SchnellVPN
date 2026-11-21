@@ -134,6 +134,8 @@ class MainWindow(QMainWindow):
         self._pending_update: Optional[updater.UpdateInfo] = None
         self._installing = False
         self._address_cache: dict[str, str] = {}
+        self._sort_column = -1
+        self._sort_desc = False
         self._notices_checked = False
         self._pending_notices: list[notices.Notice] = []
         self._notice_box: Optional[QMessageBox] = None
@@ -195,6 +197,8 @@ class MainWindow(QMainWindow):
         for column in (1, 2, 3, 4):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         header.setHighlightSections(False)
+        header.setSectionsClickable(True)
+        header.sectionClicked.connect(self._on_header_clicked)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_menu)
@@ -651,11 +655,52 @@ class MainWindow(QMainWindow):
             return (value is None, value if value is not None else 0, server.name.lower())
 
         ordered = sorted(profile.servers, key=rank)
+        # The automatic order below is by real delay when available, else by ping.
+        column = 4 if any(self.delays.get(s.id) is not None for s in profile.servers) else 3
+        self._show_sort_indicator(column, descending=False)
         if [server.id for server in ordered] == [server.id for server in profile.servers]:
             return
         profile.servers = ordered
         self.store.save()
         self.refresh_table()
+
+    def _on_header_clicked(self, column: int) -> None:
+        # Only the latency columns carry a sortable value.
+        if column not in (3, 4):
+            return
+        if self._sort_column == column:
+            self._sort_desc = not self._sort_desc
+        else:
+            self._sort_column = column
+            self._sort_desc = False
+        self._sort_by_column(column, descending=self._sort_desc)
+
+    def _sort_by_column(self, column: int, descending: bool) -> None:
+        """Sort the active profile's servers by ping (3) or delay (4); unreachable stays last."""
+        profile = self.store.profile
+        if len(profile.servers) < 2:
+            return
+        values = self.pings if column == 3 else self.delays
+        known = [s for s in profile.servers if values.get(s.id) is not None]
+        unknown = [s for s in profile.servers if values.get(s.id) is None]
+        known.sort(
+            key=lambda s: (int(values[s.id] or 0), s.name.lower()),
+            reverse=descending,
+        )
+        ordered = known + unknown
+        self._show_sort_indicator(column, descending=descending)
+        if [server.id for server in ordered] == [server.id for server in profile.servers]:
+            return
+        profile.servers = ordered
+        self.store.save()
+        self.refresh_table()
+
+    def _show_sort_indicator(self, column: int, descending: bool) -> None:
+        header = self.table.horizontalHeader()
+        header.setSortIndicatorShown(True)
+        header.setSortIndicator(
+            column, Qt.DescendingOrder if descending else Qt.AscendingOrder
+        )
 
     def _fmt_ms(self, ms: Optional[int]) -> str:
         if ms is None:

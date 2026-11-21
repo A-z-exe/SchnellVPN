@@ -122,6 +122,8 @@ def test_download_rejects_truncated_file(tmp_path, monkeypatch):
     else:
         raise AssertionError("truncated download was accepted")
     assert not (tmp_path / "updates" / "SchnellVPN-9.9.9.exe").exists()
+    # The partial bytes are kept on purpose so a later attempt can resume.
+    assert (tmp_path / "updates" / "SchnellVPN-9.9.9.exe.part").is_file()
 
 
 def test_download_rejects_non_exe(tmp_path, monkeypatch):
@@ -222,3 +224,77 @@ def test_linux_build_picks_the_appimage(monkeypatch):
         ]
     }
     assert _updater.asset_for_build(release)["browser_download_url"] == "app"
+
+
+class _FakeResponse:
+    def __init__(self, body: bytes, status: int):
+        self.body = body
+        self.status = status
+        self.pos = 0
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self.body[self.pos:self.pos + size]
+        self.pos += len(chunk)
+        return chunk
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def _fake_remote(monkeypatch, seen, honor_range=True):
+    def fake_open(request, timeout):
+        header = request.get_header("Range")
+        seen.append(header)
+        offset = int(header.split("=")[1].rstrip("-")) if header else 0
+        if honor_range and offset:
+            return _FakeResponse(PAYLOAD[offset:], 206)
+        return _FakeResponse(PAYLOAD, 200)
+
+    monkeypatch.setattr(_updater, "_open", fake_open)
+
+
+def test_download_resumes_from_partial_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(_updater.time, "sleep", lambda *_: None)
+    digest = hashlib.sha256(PAYLOAD).hexdigest()
+    info = _local_info(tmp_path, digest, size=len(PAYLOAD))
+    target_dir = tmp_path / "updates"
+    target_dir.mkdir()
+    (target_dir / "SchnellVPN-9.9.9.exe.part").write_bytes(PAYLOAD[:300_000])
+    seen: list = []
+    _fake_remote(monkeypatch, seen)
+    result = _updater.download(info, target_dir)
+    assert seen[0] == "bytes=300000-"
+    assert result.read_bytes() == PAYLOAD
+    assert not (target_dir / "SchnellVPN-9.9.9.exe.part").exists()
+
+
+def test_download_restarts_when_range_is_ignored(tmp_path, monkeypatch):
+    monkeypatch.setattr(_updater.time, "sleep", lambda *_: None)
+    digest = hashlib.sha256(PAYLOAD).hexdigest()
+    info = _local_info(tmp_path, digest, size=len(PAYLOAD))
+    target_dir = tmp_path / "updates"
+    target_dir.mkdir()
+    (target_dir / "SchnellVPN-9.9.9.exe.part").write_bytes(PAYLOAD[:300_000])
+    seen: list = []
+    _fake_remote(monkeypatch, seen, honor_range=False)
+    result = _updater.download(info, target_dir)
+    assert seen[0] == "bytes=300000-"
+    assert result.read_bytes() == PAYLOAD
+
+
+def test_download_publishes_a_complete_part_without_network(tmp_path, monkeypatch):
+    digest = hashlib.sha256(PAYLOAD).hexdigest()
+    info = _local_info(tmp_path, digest, size=len(PAYLOAD))
+    target_dir = tmp_path / "updates"
+    target_dir.mkdir()
+    (target_dir / "SchnellVPN-9.9.9.exe.part").write_bytes(PAYLOAD)
+
+    def no_network(*_args, **_kwargs):
+        raise AssertionError("the network was used for a complete file")
+
+    monkeypatch.setattr(_updater, "_open", no_network)
+    result = _updater.download(info, target_dir)
+    assert result.read_bytes() == PAYLOAD

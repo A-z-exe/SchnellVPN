@@ -45,6 +45,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
@@ -124,6 +126,8 @@ class MainActivity : ComponentActivity() {
     private var loginLoading by mutableStateOf(false)
     private var glass by mutableStateOf(true)
     private var refreshing by mutableStateOf(false)
+    private var refreshingProfileId by mutableStateOf(-1)
+    private val collapsedProfiles = mutableStateListOf<Int>()
 
     // تنظیمات جدید
     private var autoConnect by mutableStateOf(false)
@@ -204,10 +208,14 @@ class MainActivity : ComponentActivity() {
         // بارگذاری پروفایل‌ها از حافظه (با مهاجرت از نسخه‌ی تک‌لیستی قدیمی)
         val savedProfiles = ProfileStore.load(this)
         if (savedProfiles.isNotEmpty()) {
-            profiles.addAll(savedProfiles)
+            // نواقص نسخه‌های قبل را جبران کن: سرورهای یک اشتراک که وارد چند پروفایل شده‌اند
+            // به پروفایل درستشان برمی‌گردند و تکراری‌ها حذف می‌شوند.
+            val repaired = ProfileOps.repair(savedProfiles)
+            if (repaired != savedProfiles) ProfileStore.save(this, repaired)
+            profiles.addAll(repaired)
             val savedActive = ProfileStore.loadActiveId(this)
-            activeProfileId = if (savedProfiles.any { it.id == savedActive }) savedActive
-            else savedProfiles.first().id
+            activeProfileId = if (repaired.any { it.id == savedActive }) savedActive
+            else repaired.first().id
         } else {
             val legacyServers = ProfileManager.loadServers(this)
             if (legacyServers.isNotEmpty()) {
@@ -373,6 +381,9 @@ class MainActivity : ComponentActivity() {
                                             activeProfileId = activeProfileId,
                                             selectedId = selectedServerId,
                                             refreshing = refreshing,
+                                            refreshingProfileId = refreshingProfileId,
+                                            collapsedProfileIds = collapsedProfiles,
+                                            onToggleProfile = { toggleProfileCollapsed(it) },
                                             onSwitchProfile = { switchProfile(it) },
                                             onShareProfile = { id ->
                                                 profiles.find { it.id == id }?.let { p ->
@@ -384,6 +395,7 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onDeleteServer = { pid, sid -> deleteServer(pid, sid) },
                                             onRefresh = { refreshSubscriptions(scope) },
+                                            onRefreshProfile = { refreshSubscriptions(scope, it) },
                                             onSelect = { pid, sid ->
                                                 if (pid != activeProfileId) switchProfile(pid)
                                                 selectedServerId = sid
@@ -870,15 +882,21 @@ class MainActivity : ComponentActivity() {
     }
 
     // ==================== بروزرسانی اشتراک + پینگ + مرتب‌سازی ====================
-    private fun refreshSubscriptions(scope: kotlinx.coroutines.CoroutineScope) {
+    /** هر پروفایل مستقل بروز می‌شود؛ دانلود یک پروفایل هرگز سرورهای پروفایل دیگر را دست نمی‌زند. */
+    private fun refreshSubscriptions(
+        scope: kotlinx.coroutines.CoroutineScope,
+        profileId: Int = activeProfileId
+    ) {
         if (refreshing) return
-        val urls = activeProfile()?.subscriptionUrls ?: emptyList()
+        val target = profiles.find { it.id == profileId } ?: return
+        val urls = target.subscriptionUrls
         if (urls.isEmpty()) {
-            showToast(scope, "لینک اشتراکی ذخیره نشده — اول یک لینک اضافه کن")
+            showToast(scope, "${target.name}: لینک اشتراکی ذخیره نشده — اول یک لینک اضافه کن")
             return
         }
         scope.launch {
             refreshing = true
+            refreshingProfileId = profileId
             try {
                 // ۱) دانلود همه‌ی اشتراک‌ها؛ اشتراکی که دانلودش خراب بشه سرورهای قبلی‌ش رو نگه می‌داره
                 val fetched = LinkedHashMap<String, List<VpnServer>?>()
@@ -897,31 +915,40 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (failures == urls.size) {
-                    showToast(scope, "بروزرسانی ناموفق بود — اینترنت یا لینک اشتراک رو چک کن")
+                    showToast(scope, "${target.name}: بروزرسانی ناموفق بود — اینترنت یا لینک اشتراک رو چک کن")
                     return@launch
                 }
 
-                // ۲) ادغام، پینگ واقعی، مرتب‌سازی از کمترین پینگ
-                val selectedLink = servers.find { it.id == selectedServerId }?.link
-                val merged = ServerListOps.mergeRefresh(servers.toList(), fetched)
+                // ۲) ادغام فقط در همین پروفایل، پینگ واقعی، مرتب‌سازی از کمترین پینگ
+                val selectedLink = target.servers.find { it.id == target.selectedServerId }?.link
+                val merged = ServerListOps.mergeRefresh(target.servers, fetched)
                 val (numbered, _) = ServerListOps.renumber(merged, selectedLink)
                 val pings = measurePings(numbered)
                 val (sorted, newSelected) = ServerListOps.applyPings(numbered, pings, selectedLink)
 
-                servers.clear()
-                servers.addAll(sorted)
-                selectedServerId = newSelected
-                syncActiveProfile()
+                val updated = target.copy(servers = sorted, selectedServerId = newSelected)
+                replaceProfile(updated)
+                if (profileId == activeProfileId) {
+                    servers.clear()
+                    servers.addAll(sorted)
+                    selectedServerId = newSelected
+                }
+                persistProfiles()
 
                 val alive = sorted.count { it.pingMs != null }
                 val note = if (failures > 0) " ($failures لینک دانلود نشد)" else ""
-                showToast(scope, "${sorted.size} سرور بروزرسانی شد؛ $alive تا پاسخ دادن$note")
+                showToast(scope, "${updated.name}: ${sorted.size} سرور بروزرسانی شد؛ $alive تا پاسخ دادن$note")
             } catch (e: Exception) {
                 showToast(scope, "خطا در بروزرسانی: ${e.message ?: "نامشخص"}")
             } finally {
                 refreshing = false
+                refreshingProfileId = -1
             }
         }
+    }
+
+    private fun toggleProfileCollapsed(id: Int) {
+        if (id in collapsedProfiles) collapsedProfiles.remove(id) else collapsedProfiles.add(id)
     }
 
     // ==================== اسکن QR ====================
@@ -1485,11 +1512,15 @@ fun ServersScreen(
     activeProfileId: Int,
     selectedId: Int,
     refreshing: Boolean,
+    refreshingProfileId: Int,
+    collapsedProfileIds: List<Int>,
+    onToggleProfile: (Int) -> Unit,
     onSwitchProfile: (Int) -> Unit,
     onShareProfile: (Int) -> Unit,
     onShareServer: (VpnServer) -> Unit,
     onDeleteServer: (Int, Int) -> Unit,
     onRefresh: () -> Unit,
+    onRefreshProfile: (Int) -> Unit,
     onSelect: (Int, Int) -> Unit,
     onTestPings: () -> Unit,
     onSmartConnect: () -> Unit,
@@ -1519,7 +1550,11 @@ fun ServersScreen(
         }
         Spacer(Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("$total کانفیگ", color = colors.textDim, fontSize = 11.5.sp)
+            Text(
+                if (profiles.size > 1) "$total کانفیگ در ${profiles.size} پروفایل"
+                else "$total کانفیگ",
+                color = colors.textDim, fontSize = 11.5.sp
+            )
             Spacer(Modifier.weight(1f))
             Text(
                 if (refreshing) "در حال بروزرسانی…" else "تست پینگ همه",
@@ -1531,6 +1566,7 @@ fun ServersScreen(
 
         LazyColumn(Modifier.fillMaxWidth()) {
             profiles.forEach { profile ->
+                val collapsed = profile.id in collapsedProfileIds
                 item(key = "profile-${profile.id}") {
                     ProfileGroupHeader(
                         colors = colors,
@@ -1538,23 +1574,30 @@ fun ServersScreen(
                         isDark = isDark,
                         profile = profile,
                         active = profile.id == activeProfileId,
+                        expanded = !collapsed,
+                        refreshing = refreshing && refreshingProfileId == profile.id,
+                        refreshBusy = refreshing,
+                        onToggle = { onToggleProfile(profile.id) },
                         onSwitch = { onSwitchProfile(profile.id) },
+                        onRefresh = { onRefreshProfile(profile.id) },
                         onShare = { onShareProfile(profile.id) }
                     )
                 }
-                items(profile.servers, key = { "${profile.id}-${it.id}" }) { server ->
-                    ServerCard(
-                        colors = colors,
-                        glass = glass,
-                        isDark = isDark,
-                        server = server,
-                        selected = profile.id == activeProfileId && server.id == selectedId,
-                        liveLatencyMs = if (liveConnected && profile.id == activeProfileId && server.id == selectedId) liveLatency else 0,
-                        onClick = { onSelect(profile.id, server.id) },
-                        onShare = { onShareServer(server) },
-                        onEdit = { onEditServer(server) },
-                        onDelete = { onDeleteServer(profile.id, server.id) }
-                    )
+                if (!collapsed) {
+                    items(profile.servers, key = { "${profile.id}-${it.id}" }) { server ->
+                        ServerCard(
+                            colors = colors,
+                            glass = glass,
+                            isDark = isDark,
+                            server = server,
+                            selected = profile.id == activeProfileId && server.id == selectedId,
+                            liveLatencyMs = if (liveConnected && profile.id == activeProfileId && server.id == selectedId) liveLatency else 0,
+                            onClick = { onSelect(profile.id, server.id) },
+                            onShare = { onShareServer(server) },
+                            onEdit = { onEditServer(server) },
+                            onDelete = { onDeleteServer(profile.id, server.id) }
+                        )
+                    }
                 }
                 item(key = "gap-${profile.id}") { Spacer(Modifier.height(10.dp)) }
             }
@@ -1586,7 +1629,12 @@ fun ProfileGroupHeader(
     isDark: Boolean,
     profile: ServerProfile,
     active: Boolean,
+    expanded: Boolean,
+    refreshing: Boolean,
+    refreshBusy: Boolean,
+    onToggle: () -> Unit,
     onSwitch: () -> Unit,
+    onRefresh: () -> Unit,
     onShare: () -> Unit
 ) {
     Row(
@@ -1611,7 +1659,19 @@ fun ProfileGroupHeader(
             )
             Text("${profile.servers.size} سرور", color = colors.textDim, fontSize = 10.5.sp)
         }
+        IconAction(
+            colors,
+            Icons.Filled.Refresh,
+            "بروزرسانی این پروفایل",
+            tint = if (refreshing) colors.amber else colors.textDim
+        ) { if (!refreshBusy) onRefresh() }
         IconAction(colors, Icons.Filled.Share, "اشتراک‌گذاری پروفایل", tint = colors.teal) { onShare() }
+        IconAction(
+            colors,
+            if (expanded) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowRight,
+            if (expanded) "بستن سرورهای این پروفایل" else "باز کردن سرورهای این پروفایل",
+            tint = colors.textDim
+        ) { onToggle() }
     }
 }
 
@@ -1935,7 +1995,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
         Text("درباره", color = colors.textDim, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        AboutRow(colors, "نسخه برنامه", "1.4.3")
+        AboutRow(colors, "نسخه برنامه", UpdateManager.currentVersion(context))
         AboutRow(colors, "هسته اتصال", "Xray-core")
         AboutRow(colors, "توسعه‌دهنده", "A-z-exe (Amirhosseinzarei)")
         Row(

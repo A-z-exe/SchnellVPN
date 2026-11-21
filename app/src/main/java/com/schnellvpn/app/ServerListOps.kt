@@ -54,8 +54,10 @@ object ServerListOps {
     }
 
     /** کلید حذف تکراری: کانفیگ‌های لوکال با نام متفاوت باید جدا بمانند. */
-    private fun dupKey(s: VpnServer): String =
-        if (isLocalLink(s.link)) s.link + "|" + s.name else s.link
+    fun linkKey(server: VpnServer): String =
+        if (isLocalLink(server.link)) server.link + "|" + server.name else server.link
+
+    private fun dupKey(s: VpnServer): String = linkKey(s)
 
     /** آیا این کانفیگ به آدرس لوکال اشاره می‌کند؟ (همیشه بالای لیست و بدون پینگ) */
     fun isLocalLink(link: String): Boolean = try {
