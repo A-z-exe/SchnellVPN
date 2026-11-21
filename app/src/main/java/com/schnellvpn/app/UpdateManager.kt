@@ -40,6 +40,7 @@ object UpdateManager {
 
     private const val API_URL = "https://api.github.com/repos/A-z-exe/SchnellVPN/releases/latest"
     private const val APK_NAME = "SchnellVPN-update.apk"
+    private const val HTTP_RANGE_NOT_SATISFIABLE = 416
 
     fun currentVersion(context: Context): String = try {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0"
@@ -156,7 +157,7 @@ object UpdateManager {
         val conn = openFollowing(info.apkUrl, offset)
         try {
             val code = conn.responseCode
-            if (code == HttpURLConnection.HTTP_REQUESTED_RANGE_NOT_SATISFIABLE) {
+            if (code == HTTP_RANGE_NOT_SATISFIABLE) {
                 part.delete()
                 throw IOException("HTTP $code")
             }
