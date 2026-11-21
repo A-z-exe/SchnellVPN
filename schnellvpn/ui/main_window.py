@@ -410,7 +410,10 @@ class MainWindow(QMainWindow):
         self.tray_quit_action.triggered.connect(self._quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._tray_activated)
-        self.tray.show()
+        # Headless/offscreen sessions have no tray host; registering one there
+        # only leaves a StatusNotifier connection that crashes Qt at shutdown.
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray.show()
 
     # ------------------------------------------------------------------ i18n
 

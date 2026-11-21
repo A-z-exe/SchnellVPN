@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import time
 
@@ -55,6 +56,14 @@ def pump(app, predicate, timeout=6.0):
     return predicate()
 
 
+@pytest.fixture(scope="module", autouse=True)
+def settle(qt_app):
+    yield
+    for _ in range(10):
+        qt_app.processEvents()
+    gc.collect()
+
+
 @pytest.fixture(autouse=True)
 def fast_reconnects(monkeypatch):
     monkeypatch.setattr(mw, "RECONNECT_DELAYS", (0, 0, 0, 0, 0))
@@ -88,7 +97,8 @@ def test_smart_connect_picks_the_fastest(tmp_path, qt_app, monkeypatch):
         assert window.client.link == "vmess://fast"
     finally:
         window.shutdown()
-        window.close()
+        window.deleteLater()
+        qt_app.processEvents()
 
 
 def test_failover_switches_to_the_next_server(tmp_path, qt_app, monkeypatch):
@@ -108,7 +118,8 @@ def test_failover_switches_to_the_next_server(tmp_path, qt_app, monkeypatch):
         assert window.store.profile.selected_server_id == 2
     finally:
         window.shutdown()
-        window.close()
+        window.deleteLater()
+        qt_app.processEvents()
 
 
 def test_disconnect_cancels_recovery(tmp_path, qt_app):
@@ -125,7 +136,8 @@ def test_disconnect_cancels_recovery(tmp_path, qt_app):
         assert window.state == mw.STATE_IDLE
     finally:
         window.shutdown()
-        window.close()
+        window.deleteLater()
+        qt_app.processEvents()
 
 
 def test_bounded_mode_gives_up(tmp_path, qt_app):
@@ -141,4 +153,5 @@ def test_bounded_mode_gives_up(tmp_path, qt_app):
         assert window._reconnect_attempt >= 3
     finally:
         window.shutdown()
-        window.close()
+        window.deleteLater()
+        qt_app.processEvents()
