@@ -43,6 +43,7 @@ from ..core.links import endpoint_of
 from ..core.models import VpnServer
 from ..core.netprobe import ping_all, probe_with_latency
 from ..core.runner import XrayProcess, find_binary
+from ..core.selection import rank_servers
 from ..core.store import Store
 from .dialogs import (
     AboutDialog,
@@ -69,14 +70,16 @@ STATE_IDLE = "idle"
 STATE_CONNECTING = "connecting"
 STATE_CONNECTED = "connected"
 STATE_DISCONNECTING = "disconnecting"
+STATE_RECONNECTING = "reconnecting"
 
 LANG_NAMES = {"fa": "فارسی", "en": "English", "de": "Deutsch"}
 CHANNEL_URL = "https://t.me/SchnellVPN"
 
 # A single failed probe is usually a blip: one fast retry, then two failed
-# cycles before the tunnel is restarted. Reconnects back off 2s → 5s → 10s.
+# cycles before the tunnel is restarted. Always-on mode keeps retrying with a
+# capped backoff; the bounded mode gives up after the first three steps.
 MAX_MONITOR_FAILURES = 2
-AUTO_RECONNECT_DELAYS = (2, 5, 10)
+RECONNECT_DELAYS = (2, 5, 10, 20, 30)
 
 
 class Task(QObject):
@@ -118,6 +121,8 @@ class MainWindow(QMainWindow):
         self._monitor_failures = 0
         self._recovering = False
         self._reconnect_attempt = 0
+        self._failed_servers: set[int] = set()
+        self._conn_seq = 0
         self._quitting = False
         self._tray_hint_shown = False
         self._tasks: list[Task] = []
@@ -794,14 +799,10 @@ class MainWindow(QMainWindow):
                 raise ValueError(t(self.lang, "import_fail"))
             return servers, urls
 
-        task = self._start_task(work)
-        task.ok.connect(
+        self._start_task(
+            work,
             lambda result: self._import_done(*result),
-            Qt.QueuedConnection,
-        )
-        task.err.connect(
             lambda exc: self._set_hint(f"{t(self.lang, 'import_fail')}: {exc}"),
-            Qt.QueuedConnection,
         )
 
     def _import_done(self, servers: list[VpnServer], urls: list[str]) -> None:
@@ -828,9 +829,7 @@ class MainWindow(QMainWindow):
                     fetched[url] = None
             return fetched
 
-        task = self._start_task(work)
-        task.ok.connect(self._refresh_done, Qt.QueuedConnection)
-        task.err.connect(self._refresh_failed, Qt.QueuedConnection)
+        self._start_task(work, self._refresh_done, self._refresh_failed)
 
     def _refresh_failed(self, exc: Exception) -> None:
         self.refresh_button.setEnabled(True)
@@ -909,12 +908,11 @@ class MainWindow(QMainWindow):
             self._set_hint(t(self.lang, "no_servers_to_test"))
             return
         self._set_hint(t(self.lang, "pinging"))
-        task = self._start_task(lambda: ping_all([s.link for s in servers]))
-        task.ok.connect(
+        self._start_task(
+            lambda: ping_all([s.link for s in servers]),
             lambda results: self._apply_pings(
                 {server.id: value for server, value in zip(servers, results)}
             ),
-            Qt.QueuedConnection,
         )
 
     def _apply_pings(self, results: dict[int, Optional[int]]) -> None:
@@ -930,11 +928,10 @@ class MainWindow(QMainWindow):
             return
         self._set_hint(t(self.lang, "testing_delay"))
         delay_runner = XrayProcess(data_dir=self.data_dir / "delay")
-        task = self._start_task(lambda: measure_delays(servers, runner=delay_runner))
-        task.ok.connect(self._apply_delays, Qt.QueuedConnection)
-        task.err.connect(
+        self._start_task(
+            lambda: measure_delays(servers, runner=delay_runner),
+            self._apply_delays,
             lambda exc: self._set_hint(f"{t(self.lang, 'delay_engine_failed')}: {exc}"),
-            Qt.QueuedConnection,
         )
 
     def _apply_delays(self, results: Optional[dict[int, Optional[int]]]) -> None:
@@ -957,10 +954,10 @@ class MainWindow(QMainWindow):
             return
         self._speed_pending = True
         server = self.client.stats_server
-        task = self._start_task(lambda: speedstats.read_totals(server))
-        task.ok.connect(self._speed_sample, Qt.QueuedConnection)
-        task.err.connect(
-            lambda _exc: self._speed_sample(None), Qt.QueuedConnection
+        self._start_task(
+            lambda: speedstats.read_totals(server),
+            self._speed_sample,
+            lambda _exc: self._speed_sample(None),
         )
 
     def _speed_sample(self, current: Optional[tuple[int, int]]) -> None:
@@ -1016,9 +1013,11 @@ class MainWindow(QMainWindow):
             return
         self.update_button.setEnabled(False)
         self._set_hint(t(self.lang, "checking_update"))
-        task = self._start_task(lambda: updater.check(__version__))
-        task.ok.connect(self._update_checked, Qt.QueuedConnection)
-        task.err.connect(self._update_check_failed, Qt.QueuedConnection)
+        self._start_task(
+            lambda: updater.check(__version__),
+            self._update_checked,
+            self._update_check_failed,
+        )
 
     def _update_checked(self, info: Optional[updater.UpdateInfo]) -> None:
         self.update_button.setEnabled(True)
@@ -1045,11 +1044,10 @@ class MainWindow(QMainWindow):
     def _download_update(self, info: updater.UpdateInfo) -> None:
         self.update_button.setEnabled(False)
         self._set_hint(t(self.lang, "downloading_update", version=info.version))
-        task = self._start_task(lambda: updater.download(info))
-        task.ok.connect(self._update_downloaded, Qt.QueuedConnection)
-        task.err.connect(
-            lambda exc: self._update_download_failed(exc),
-            Qt.QueuedConnection,
+        self._start_task(
+            lambda: updater.download(info),
+            self._update_downloaded,
+            self._update_download_failed,
         )
 
     def _update_downloaded(self, path: Path) -> None:
@@ -1083,41 +1081,112 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ connect
 
     def _connect_clicked(self) -> None:
+        if self.state in (STATE_CONNECTED, STATE_RECONNECTING):
+            self._disconnect_async()
+            return
         if self._busy:
             return
-        if self.state == STATE_CONNECTED:
-            self._disconnect_async()
+        self._recovering = False
+        self._failed_servers.clear()
+        if self.store.get_setting("smart_connect", True):
+            self._connect_smart_async()
         else:
             self._connect_async()
 
-    def _connect_async(self, keep_recovering: bool = False) -> None:
-        if not keep_recovering:
-            self._recovering = False
-            self._monitor_failures = 0
+    def _connect_smart_async(self) -> None:
+        servers = [s for s in self.store.profile.servers if s.link]
+        if not servers:
+            self._set_hint(t(self.lang, "select_server_hint"))
+            return
+        self._monitor_failures = 0
+        self._busy = True
+        self._conn_seq += 1
+        seq = self._conn_seq
+        self._set_state(STATE_CONNECTING)
+        self._set_hint(t(self.lang, "testing_servers"))
+        self._log(f"smart connect: measuring {len(servers)} servers")
+        self._start_task(
+            lambda: ping_all([s.link for s in servers]),
+            lambda results: self._smart_measured(seq, servers, results),
+            lambda exc: self._smart_failed(seq, exc),
+        )
+
+    def _smart_measured(self, seq: int, servers: list, results: list) -> None:
+        if seq != self._conn_seq:
+            return
+        pings = {s.id: value for s, value in zip(servers, results)}
+        self.pings.update(pings)
+        self._refresh_table_metrics()
+        self._busy = False
+        best = rank_servers(servers, pings, {})
+        if not best:
+            self._smart_failed(seq, None)
+            return
+        chosen = best[0]
+        self._log(f"smart connect picked {chosen.name} ({self._fmt_ms(pings.get(chosen.id))})")
+        self._set_hint(t(self.lang, "best_server", name=chosen.name))
+        if chosen.id != self.store.profile.selected_server_id:
+            self.store.select_server(chosen.id)
+            self.refresh_table()
+        self.current_server = chosen
+        self._connect_async()
+
+    def _smart_failed(self, seq: int, exc: Optional[Exception]) -> None:
+        if seq != self._conn_seq:
+            return
+        self._busy = False
+        self._log(f"smart connect measurement failed: {exc}" if exc else "smart connect: no candidates")
+        self.current_server = self.store.profile.selected_server
+        self._connect_async()
+
+    def _connect_async(self) -> None:
         server = self.current_server or self.store.profile.selected_server
         if server is None:
             self._set_hint(t(self.lang, "select_server_hint"))
             return
         self.current_server = server
+        self._monitor_failures = 0
+        self._conn_seq += 1
+        seq = self._conn_seq
+        recovering = self._recovering
         settings = self.store.settings
         socks = int(settings.get("socks_port", 10808))
         http = int(settings.get("http_port", 10809))
         use_proxy = bool(settings.get("use_system_proxy", True))
 
         self._busy = True
-        self._set_state(STATE_CONNECTING)
+        self._set_state(STATE_RECONNECTING if recovering else STATE_CONNECTING)
         self._speed_reset()
-        self._set_hint(t(self.lang, "connecting_to", name=server.name))
+        if recovering:
+            self._set_hint(t(self.lang, "reconnecting_to", name=server.name))
+        else:
+            self._set_hint(t(self.lang, "connecting_to", name=server.name))
         self._log(f"connecting to {server.name} ({server.label})")
 
-        task = self._start_task(
-            lambda: self.client.connect(server.link, socks, http, use_proxy)
+        self._start_task(
+            lambda: self.client.connect(server.link, socks, http, use_proxy),
+            lambda latency: self._connect_done(seq, server, int(latency)),
+            lambda exc: self._connect_error(seq, exc),
         )
-        task.ok.connect(
-            lambda latency: self._connected(server, int(latency)),
-            Qt.QueuedConnection,
-        )
-        task.err.connect(self._connect_failed, Qt.QueuedConnection)
+
+    def _connect_done(self, seq: int, server: VpnServer, latency: int) -> None:
+        if seq != self._conn_seq:
+            self._discard_stale_connect()
+            return
+        self._connected(server, latency)
+
+    def _connect_error(self, seq: int, exc: Exception) -> None:
+        if seq != self._conn_seq:
+            self._discard_stale_connect()
+            return
+        self._connect_failed(exc)
+
+    def _discard_stale_connect(self) -> None:
+        # The user cancelled while a connect was in flight; never leave an
+        # orphan tunnel (or a stale SOCKS port) behind.
+        if self.state == STATE_IDLE and self.client.running:
+            self._log("cancelled connect finished late; closing the tunnel")
+            self._start_task(self.client.disconnect)
 
     def _connected(self, server: VpnServer, latency: int) -> None:
         self._busy = False
@@ -1127,6 +1196,7 @@ class MainWindow(QMainWindow):
         self._recovering = False
         self._reconnect_attempt = 0
         self._monitor_failures = 0
+        self._failed_servers.clear()
         self.delays[server.id] = latency
         self._log(f"connected: {server.name} via {server.label}, {latency} ms")
         self._render_state()
@@ -1138,8 +1208,6 @@ class MainWindow(QMainWindow):
 
     def _connect_failed(self, exc: Exception) -> None:
         self._busy = False
-        self.state = STATE_IDLE
-        self.current_server = self.current_server
         key = getattr(exc, "key", None)
         if key:
             text = t(self.lang, key)
@@ -1151,29 +1219,38 @@ class MainWindow(QMainWindow):
             text = f"{t(self.lang, 'xray_error')}: {exc}"
         self._log(f"connect failed: {text}")
         self._speed_reset()
+        if self._recovering:
+            server = self.current_server
+            if server is not None:
+                self._failed_servers.add(server.id)
+            self._reconnect_attempt += 1
+            self._set_hint(t(self.lang, "reconnecting_attempt", n=self._reconnect_attempt))
+            self._schedule_recovery()
+            return
+        self.state = STATE_IDLE
         self._set_hint(text)
         self._render_state()
         self._update_tray()
-        if self._recovering:
-            self._schedule_reconnect(self.current_server)
 
     def _disconnect_async(self, quiet: bool = False) -> None:
+        was_reconnecting = self.state == STATE_RECONNECTING
         self._recovering = False
-        if self._busy or self.state == STATE_IDLE:
+        self._failed_servers.clear()
+        self._conn_seq += 1
+        if self._busy and not was_reconnecting:
+            return
+        if self.state == STATE_IDLE:
+            self._render_state()
             return
         self._busy = True
         self._stop_monitor()
         self._speed_reset()
         self._set_state(STATE_DISCONNECTING)
         self._log("disconnecting")
-        task = self._start_task(self.client.disconnect)
-        task.ok.connect(
+        self._start_task(
+            self.client.disconnect,
             lambda _result=None: self._disconnected(quiet),
-            Qt.QueuedConnection,
-        )
-        task.err.connect(
             lambda exc: self._disconnected(quiet),
-            Qt.QueuedConnection,
         )
 
     def _disconnected(self, quiet: bool) -> None:
@@ -1191,20 +1268,18 @@ class MainWindow(QMainWindow):
 
     def _reconnect(self, server: VpnServer) -> None:
         self._recovering = False
+        self._failed_servers.clear()
         if self._busy:
             return
+        self._conn_seq += 1
         self._busy = True
         self._stop_monitor()
         self._speed_reset()
         self._set_state(STATE_DISCONNECTING)
-        task = self._start_task(self.client.disconnect)
-        task.ok.connect(
+        self._start_task(
+            self.client.disconnect,
             lambda _result=None: self._reconnect_after_stop(server),
-            Qt.QueuedConnection,
-        )
-        task.err.connect(
             lambda exc: self._reconnect_after_stop(server),
-            Qt.QueuedConnection,
         )
 
     def _reconnect_after_stop(self, server: VpnServer) -> None:
@@ -1216,6 +1291,7 @@ class MainWindow(QMainWindow):
 
     def _start_monitor(self) -> None:
         interval = int(self.store.get_setting("probe_interval", 20)) * 1000
+        self._monitoring = False
         self._timers["monitor"].start(max(5000, interval))
 
     def _stop_monitor(self) -> None:
@@ -1231,16 +1307,13 @@ class MainWindow(QMainWindow):
         def check() -> tuple[bool, Optional[int]]:
             if not self.client.running:
                 return False, None
-            # 6s covers slow mobile links; a single miss no longer drops the tunnel.
-            return True, probe_with_latency(socks, 6000)
+            # 8s covers slow mobile links; a single miss no longer drops the tunnel.
+            return True, probe_with_latency(socks, 8000)
 
-        task = self._start_task(check)
-        task.ok.connect(
+        self._start_task(
+            check,
             lambda result: self._monitor_result(result[0], result[1], attempt),
-            Qt.QueuedConnection,
-        )
-        task.err.connect(
-            lambda exc: self._monitor_result(True, None, attempt), Qt.QueuedConnection
+            lambda exc: self._monitor_result(True, None, attempt),
         )
 
     def _monitor_result(
@@ -1261,68 +1334,102 @@ class MainWindow(QMainWindow):
                 self._log("tunnel probe failed; will retry")
                 return
             self._log("tunnel stopped passing data; reconnecting")
-            self._set_hint(t(self.lang, "auto_reconnect"))
+            self._set_hint(t(self.lang, "reconnecting"))
             if self.tray.isVisible():
                 self.tray.showMessage(
                     "SchnellVPN",
-                    t(self.lang, "auto_reconnect"),
+                    t(self.lang, "reconnecting"),
                     QSystemTrayIcon.Warning,
                     4000,
                 )
-            self._recover_tunnel()
+            self._start_recovery()
             return
         self._monitor_failures = 0
         if self.current_server:
             self.delays[self.current_server.id] = int(latency)
         self._refresh_metrics()
 
-    def _recover_tunnel(self) -> None:
+    def _start_recovery(self) -> None:
         server = self.current_server
-        if server is None or self._busy or self._recovering:
+        if server is None or self._recovering:
             return
         self._recovering = True
+        self._monitor_failures = 0
         self._reconnect_attempt = 0
+        self._failed_servers = {server.id}
         self._stop_monitor()
         self._speed_reset()
         self._busy = True
-        self._set_state(STATE_DISCONNECTING)
-        task = self._start_task(self.client.disconnect)
-        task.ok.connect(
-            lambda _result=None: self._recover_after_stop(server),
-            Qt.QueuedConnection,
-        )
-        task.err.connect(
-            lambda exc: self._recover_after_stop(server), Qt.QueuedConnection
+        self._conn_seq += 1
+        self.connected_at = None
+        self.delay_chip.setVisible(False)
+        self.uptime_chip.setVisible(False)
+        self._set_state(STATE_RECONNECTING)
+        self._log("recovering tunnel")
+        self._start_task(
+            self.client.disconnect,
+            lambda _result=None: self._recovery_after_stop(),
+            lambda exc: self._recovery_after_stop(),
         )
 
-    def _recover_after_stop(self, server: VpnServer) -> None:
+    def _recovery_after_stop(self) -> None:
+        if not self._recovering:
+            return
+        self._busy = False
+        self._schedule_recovery()
+
+    def _schedule_recovery(self) -> None:
+        if not self._recovering or self.state != STATE_RECONNECTING:
+            return
+        if not self.store.get_setting("always_on", True):
+            if self._reconnect_attempt >= 3:
+                self._give_up_recovery()
+                return
+        index = min(self._reconnect_attempt, len(RECONNECT_DELAYS) - 1)
+        QTimer.singleShot(RECONNECT_DELAYS[index] * 1000, self._recovery_attempt)
+
+    def _give_up_recovery(self) -> None:
+        self._recovering = False
+        self._failed_servers.clear()
         self._busy = False
         self.state = STATE_IDLE
         self.connected_at = None
-        self.current_server = server
-        self.delay_chip.setVisible(False)
-        self.uptime_chip.setVisible(False)
+        self._log("auto reconnect gave up")
         self._render_state()
         self._update_tray()
-        self._schedule_reconnect(server)
+        self._set_hint(t(self.lang, "auto_reconnect_failed"))
 
-    def _schedule_reconnect(self, server: Optional[VpnServer]) -> None:
-        if server is None or not self._recovering or self.state != STATE_IDLE:
+    def _recovery_attempt(self) -> None:
+        if not self._recovering or self._busy or self.state != STATE_RECONNECTING:
             return
-        if self._reconnect_attempt >= len(AUTO_RECONNECT_DELAYS):
-            self._recovering = False
-            self._log("auto reconnect gave up")
-            self._set_hint(t(self.lang, "auto_reconnect_failed"))
+        server = self._recovery_server()
+        if server is None:
+            self._failed_servers.clear()
+            self._log("every server failed this cycle; starting over")
+            server = self._recovery_server()
+        if server is None:
+            self._reconnect_attempt += 1
+            self._schedule_recovery()
             return
-        delay = AUTO_RECONNECT_DELAYS[self._reconnect_attempt] * 1000
-        self._reconnect_attempt += 1
-        QTimer.singleShot(delay, lambda: self._reconnect_step(server))
+        previous = self.current_server
+        if previous is None or server.id != previous.id:
+            self._log(f"switching server to {server.name}")
+            self._set_hint(t(self.lang, "switching_server", name=server.name))
+            self.store.select_server(server.id)
+            self.current_server = server
+            self.refresh_table()
+        self._connect_async()
 
-    def _reconnect_step(self, server: VpnServer) -> None:
-        if not self._recovering or self.state != STATE_IDLE:
-            return
-        self.current_server = server
-        self._connect_async(keep_recovering=True)
+    def _recovery_server(self) -> Optional[VpnServer]:
+        if not self.store.get_setting("smart_connect", True):
+            return self.current_server
+        ranked = rank_servers(
+            self.store.profile.servers,
+            self.pings,
+            self.delays,
+            exclude=self._failed_servers,
+        )
+        return ranked[0] if ranked else None
 
     # ------------------------------------------------------------------ state / chips
 
@@ -1341,6 +1448,13 @@ class MainWindow(QMainWindow):
             enabled = True
             self.delay_chip.setVisible(True)
             self.uptime_chip.setVisible(True)
+        elif self.state == STATE_RECONNECTING:
+            status = t(self.lang, "reconnecting")
+            dot = WARN
+            button = t(self.lang, "disconnect")
+            enabled = True
+            self.delay_chip.setVisible(False)
+            self.uptime_chip.setVisible(False)
         elif self.state == STATE_CONNECTING:
             status = t(self.lang, "connecting")
             dot = WARN
@@ -1365,7 +1479,9 @@ class MainWindow(QMainWindow):
         self.status_dot.setStyleSheet(f"color: {dot}; font-size: 13px;")
         self.connect_button.setText(button)
         self.connect_button.setEnabled(enabled)
-        self.connect_button.setProperty("state", "on" if self.state == STATE_CONNECTED else "off")
+        self.connect_button.setProperty(
+            "state", "on" if self.state in (STATE_CONNECTED, STATE_RECONNECTING) else "off"
+        )
         self.connect_button.style().unpolish(self.connect_button)
         self.connect_button.style().polish(self.connect_button)
         self._update_proxy_chip()
@@ -1494,6 +1610,9 @@ class MainWindow(QMainWindow):
         if self.state == STATE_CONNECTED and self.current_server:
             self.tray.setToolTip(f"SchnellVPN \u00b7 {t(self.lang, 'connected_to', name=self.current_server.name)}")
             self.tray_connect_action.setText(t(self.lang, "disconnect"))
+        elif self.state == STATE_RECONNECTING:
+            self.tray.setToolTip(f"SchnellVPN \u00b7 {t(self.lang, 'reconnecting')}")
+            self.tray_connect_action.setText(t(self.lang, "disconnect"))
         else:
             self.tray.setToolTip("SchnellVPN")
             self.tray_connect_action.setText(t(self.lang, "connect"))
@@ -1543,9 +1662,18 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ helpers
 
-    def _start_task(self, fn: Callable[[], object]) -> Task:
+    def _start_task(
+        self,
+        fn: Callable[[], object],
+        ok: Optional[Callable] = None,
+        err: Optional[Callable] = None,
+    ) -> Task:
         task = Task(fn, self)
-        task.ok.connect(lambda _result: None, Qt.QueuedConnection)
+        # Connect before the thread starts: a task that fails instantly (for
+        # example with no internet) must still reach the UI instead of leaving
+        # it stuck waiting for a signal that was already emitted.
+        task.ok.connect(ok or (lambda _result: None), Qt.QueuedConnection)
+        task.err.connect(err or (lambda _exc: None), Qt.QueuedConnection)
         self._tasks.append(task)
         if len(self._tasks) > 64:
             self._tasks = [t for t in self._tasks if t is not None][-32:]

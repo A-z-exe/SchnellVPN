@@ -18,6 +18,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "use_system_proxy": True,
     "minimize_to_tray": True,
     "probe_interval": 20,
+    "smart_connect": True,
+    "always_on": True,
 }
 
 

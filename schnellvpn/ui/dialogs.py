@@ -213,6 +213,10 @@ class SettingsDialog(BaseDialog):
         self.system_proxy.setChecked(bool(settings.get("use_system_proxy", True)))
         self.tray = QCheckBox(self.tr_("minimize_to_tray"))
         self.tray.setChecked(bool(settings.get("minimize_to_tray", True)))
+        self.smart_connect = QCheckBox(self.tr_("smart_connect"))
+        self.smart_connect.setChecked(bool(settings.get("smart_connect", True)))
+        self.always_on = QCheckBox(self.tr_("always_on"))
+        self.always_on.setChecked(bool(settings.get("always_on", True)))
 
         form.addRow(self.tr_("language"), self.language)
         form.addRow(self.tr_("theme"), self.theme)
@@ -220,6 +224,8 @@ class SettingsDialog(BaseDialog):
         form.addRow(self.tr_("http_port"), self.http)
         form.addRow("", self.system_proxy)
         form.addRow("", self.tray)
+        form.addRow("", self.smart_connect)
+        form.addRow("", self.always_on)
         layout.addLayout(form)
 
         binary = find_binary()
@@ -323,6 +329,8 @@ class SettingsDialog(BaseDialog):
             "http_port": port(self.http, int(self.settings.get("http_port", 10809))),
             "use_system_proxy": self.system_proxy.isChecked(),
             "minimize_to_tray": self.tray.isChecked(),
+            "smart_connect": self.smart_connect.isChecked(),
+            "always_on": self.always_on.isChecked(),
         }
 
 

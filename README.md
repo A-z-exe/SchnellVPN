@@ -6,18 +6,18 @@
 ![Windows](https://img.shields.io/badge/platform-Windows-blue)
 ![Linux](https://img.shields.io/badge/platform-Linux-yellow)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
-![Version](https://img.shields.io/badge/version-1.5.1-blue)
+![Version](https://img.shields.io/badge/version-1.5.2-blue)
 
 **SchnellVPN** is a VPN client built on **Xray-core**, shipped for three platforms that share the
 same engine, link formats and honesty checks (no "connected" before data really flows):
 
 | | 🤖 **Android** (stable) | 🪟 **Windows** | 🐧 **Linux** |
 | --- | --- | --- | --- |
-| Version | **1.5.1** | **1.5.1** | **1.5.1** |
+| Version | **1.5.2** | **1.5.2** | **1.5.2** |
 | Built with | Kotlin + Jetpack Compose | Python + PySide6 | Python + PySide6 |
 | Engine | AndroidLibXrayLite | Xray-core 26.x (`xray.exe`, bundled) | Xray-core (bundled) |
 | Tunnel | TUN (VpnService) + hev-socks5-tunnel | SOCKS/HTTP + WinINET system proxy | SOCKS/HTTP + GNOME (GSettings) proxy |
-| Extras | QR import, split tunneling, per-app auto-connect, hotspot sharing | in-app update with rollback, connection log, bug-report email, live speed chart, profiles, tray, fa/en/de | `.deb` + portable AppImage, tray, crash-safe proxy restore, fa/en/de |
+| Extras | QR import, split tunneling, per-app auto-connect, hotspot sharing | smart connect, failover, always-on reconnect, in-app update with rollback, connection log, bug-report email, live speed chart, profiles, tray, fa/en/de | `.deb` + portable AppImage, smart connect, failover, always-on reconnect, tray, crash-safe proxy restore, fa/en/de |
 | Download | [Latest APK](https://github.com/A-z-exe/SchnellVPN/releases/latest) | `SchnellVPN.exe` / `SchnellVPN-Win7.exe` | `.deb` / `.AppImage` |
 
 All three builds (`SchnellVPN.apk`, `SchnellVPN.exe`, `SchnellVPN-Win7.exe`, `.deb`, `.AppImage`)
