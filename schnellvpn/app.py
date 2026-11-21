@@ -112,7 +112,17 @@ def _mark_boot_ok() -> None:
         pass
 
 
+def _mark_started() -> None:
+    """First touch after Python is up, so a later crash is distinguishable."""
+    try:
+        marker = Path(tempfile.gettempdir()) / f"schnellvpn-start-{__version__}.ok"
+        marker.write_text(str(sys.executable), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def main() -> int:
+    _mark_started()
     QApplication.setApplicationName("SchnellVPN")
     QApplication.setOrganizationName("A-z-exe")
     QApplication.setApplicationDisplayName("SchnellVPN")

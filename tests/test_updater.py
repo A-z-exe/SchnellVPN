@@ -138,13 +138,18 @@ def test_download_rejects_non_exe(tmp_path, monkeypatch):
     assert not (tmp_path / "updates" / "SchnellVPN-9.9.9.exe").exists()
 
 
-def test_install_helper_uses_no_console_apps(tmp_path, monkeypatch):
-    # `timeout` needs a console and made the helper flash cmd windows in a loop.
+def test_install_helper_is_hidden_and_kills_only_its_own_tree(tmp_path, monkeypatch):
+    temp = tmp_path / "temp"
+    temp.mkdir()
     monkeypatch.setattr(_updater, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(_updater.tempfile, "gettempdir", lambda: str(temp))
     launched = {}
 
     def fake_popen(args, **kwargs):
-        launched["args"] = args
+        launched["args"] = list(args)
+        launched["flags"] = kwargs.get("creationflags", 0)
+        launched["script"] = Path(args[-1])
+        (temp / "schnellvpn-update.lock").touch()
         return object()
 
     monkeypatch.setattr(_updater.subprocess, "Popen", fake_popen)
@@ -155,15 +160,44 @@ def test_install_helper_uses_no_console_apps(tmp_path, monkeypatch):
 
     _updater.install(update, current_exe=current, version="9.9.9")
 
-    script = Path(launched["args"][2])
-    try:
-        text = script.read_text(encoding="ascii")
-    finally:
-        script.unlink(missing_ok=True)
-    assert "timeout" not in text
+    assert launched["args"][0] == "powershell.exe"
+    assert "-WindowStyle" in launched["args"]
+    text = launched["script"].read_text(encoding="ascii")
     assert "schnellvpn-boot-9.9.9.ok" in text
     assert "schnellvpn-update.lock" in text
     assert "install.log" in text
+    assert "taskkill.exe /PID" in text
+    assert "taskkill /F /IM" not in text
+    assert r"%LOCALAPPDATA%\SchnellVPN\runtime" in text
+    assert "ping" not in text
+    if _updater.sys.platform == "win32":
+        assert launched["flags"] & _updater.subprocess.CREATE_NO_WINDOW
+
+
+def test_install_fails_when_the_helper_never_starts(tmp_path, monkeypatch):
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    monkeypatch.setattr(_updater, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(_updater.tempfile, "gettempdir", lambda: str(temp))
+    monkeypatch.setattr(_updater.subprocess, "Popen", lambda *_, **__: object())
+    clock = {"now": 0.0}
+    monkeypatch.setattr(_updater.time, "monotonic", lambda: clock["now"])
+
+    def tick(_seconds):
+        clock["now"] += 1.0
+
+    monkeypatch.setattr(_updater.time, "sleep", tick)
+    current = tmp_path / "SchnellVPN.exe"
+    current.write_bytes(b"MZ old")
+    update = tmp_path / "SchnellVPN-9.9.9.exe"
+    update.write_bytes(b"MZ new")
+
+    try:
+        _updater.install(update, current_exe=current, version="9.9.9")
+    except RuntimeError as exc:
+        assert "helper" in str(exc)
+    else:
+        raise AssertionError("a missing helper was accepted")
 
 
 def test_asset_selection_follows_the_build(monkeypatch):

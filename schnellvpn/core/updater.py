@@ -253,17 +253,134 @@ def boot_marker(version: str) -> Path:
     return Path(tempfile.gettempdir()) / f"schnellvpn-boot-{version or 'any'}.ok"
 
 
+HELPER_LOCK_MINUTES = 10
+
+
+def _ps(text: object) -> str:
+    """Quote a value for PowerShell with single quotes."""
+    return "'" + str(text).replace("'", "''") + "'"
+
+
+def _helper_script(
+    target: Path,
+    update_path: Path,
+    backup: Path,
+    marker: Path,
+    lock: Path,
+    log_path: Path,
+    version: str,
+) -> str:
+    return (
+        "$ErrorActionPreference = 'SilentlyContinue'\n"
+        f"$Target = {_ps(target)}\n"
+        f"$Update = {_ps(update_path)}\n"
+        f"$Backup = {_ps(backup)}\n"
+        f"$Marker = {_ps(marker)}\n"
+        f"$Lock = {_ps(lock)}\n"
+        f"$Log = {_ps(log_path)}\n"
+        f"$Version = {_ps(version)}\n"
+        f"$Leaf = {_ps(target.name)}\n"
+        f"$Runtime = {_ps(r'%LOCALAPPDATA%\SchnellVPN\runtime')}\n"
+        "$Runtime = [Environment]::ExpandEnvironmentStrings($Runtime)\n"
+        "\n"
+        "function Log([string]$line) {\n"
+        "  Add-Content -Path $Log -Value ((Get-Date).ToString('yyyy-MM-dd HH:mm:ss') + ' ' + $line)\n"
+        "}\n"
+        "\n"
+        "function Restore-Backup {\n"
+        "  if (-not (Test-Path $Backup)) { Log 'restore skipped: no backup'; return }\n"
+        "  if (Test-Path $Target) {\n"
+        "    Remove-Item $Target -Force\n"
+        "    if (Test-Path $Target) { Log 'restore skipped: new exe is in use'; return }\n"
+        "  }\n"
+        "  for ($i = 0; $i -lt 20; $i++) {\n"
+        "    try { Rename-Item -Path $Backup -NewName $Leaf -ErrorAction Stop; break } catch { Start-Sleep -Seconds 1 }\n"
+        "  }\n"
+        "  if (Test-Path $Target) { Log 'backup restored'; Start-Process -FilePath $Target }\n"
+        "  else { Log 'restore failed: target missing' }\n"
+        "}\n"
+        "\n"
+        "if (Test-Path $Lock) {\n"
+        "  $age = ((Get-Date) - (Get-Item $Lock).LastWriteTime).TotalMinutes\n"
+        f"  if ($age -lt {HELPER_LOCK_MINUTES}) {{ Log 'another installer is running'; exit 0 }}\n"
+        "  Remove-Item $Lock -Force\n"
+        "}\n"
+        "New-Item -ItemType File -Path $Lock -Force | Out-Null\n"
+        "Log ('installing ' + $Version)\n"
+        "if (Test-Path $Marker) { Remove-Item $Marker -Force }\n"
+        "if (Test-Path $Backup) { Remove-Item $Backup -Force }\n"
+        "\n"
+        "$swapped = $false\n"
+        "for ($i = 0; $i -lt 180; $i++) {\n"
+        "  try { Rename-Item -Path $Target -NewName ($Leaf + '.old') -ErrorAction Stop; $swapped = $true; break } catch { Start-Sleep -Seconds 1 }\n"
+        "}\n"
+        "$placed = $false\n"
+        "if ($swapped -and (Test-Path $Update)) {\n"
+        "  for ($i = 0; $i -lt 10; $i++) {\n"
+        "    try { Move-Item -Path $Update -Destination $Target -Force -ErrorAction Stop; $placed = $true; break } catch { Start-Sleep -Seconds 2 }\n"
+        "  }\n"
+        "}\n"
+        "if (-not $swapped) { Log 'old exe stayed locked' }\n"
+        "elseif (-not $placed) { Log 'downloaded update could not be moved into place' }\n"
+        "\n"
+        "$ok = $false\n"
+        "if ($placed) {\n"
+        "  # Let the antivirus finish scanning the fresh exe before it runs.\n"
+        "  Start-Sleep -Seconds 6\n"
+        "  if (Test-Path $Runtime) {\n"
+        "    Get-ChildItem -Path $Runtime -Filter '_MEI*' | Where-Object { $_.PSIsContainer -and $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | Remove-Item -Recurse -Force\n"
+        "  }\n"
+        "  for ($attempt = 1; $attempt -le 2; $attempt++) {\n"
+        "    if ($attempt -gt 1) { Start-Sleep -Seconds 12 }\n"
+        "    if (Test-Path $Marker) { Remove-Item $Marker -Force }\n"
+        "    Log ('launch attempt ' + $attempt)\n"
+        "    $proc = Start-Process -FilePath $Target -PassThru\n"
+        "    for ($j = 0; $j -lt 75; $j++) {\n"
+        "      if (Test-Path $Marker) { $ok = $true; break }\n"
+        "      if ($proc -ne $null -and $proc.HasExited) {\n"
+        "        $code = 'unknown'\n"
+        "        try { $code = $proc.ExitCode } catch { }\n"
+        "        Log ('new build exited early with code ' + $code)\n"
+        "        break\n"
+        "      }\n"
+        "      Start-Sleep -Seconds 1\n"
+        "    }\n"
+        "    if ($ok) { break }\n"
+        "    Log ('launch attempt ' + $attempt + ' did not reach the app')\n"
+        "    if ($proc -ne $null -and -not $proc.HasExited) { & taskkill.exe /PID $proc.Id /T /F | Out-Null }\n"
+        "    Start-Sleep -Seconds 2\n"
+        "  }\n"
+        "}\n"
+        "\n"
+        "if ($ok) {\n"
+        "  Log 'update ok'\n"
+        "  for ($i = 0; $i -lt 5; $i++) {\n"
+        "    if (-not (Test-Path $Backup)) { break }\n"
+        "    Remove-Item $Backup -Force\n"
+        "    Start-Sleep -Seconds 1\n"
+        "  }\n"
+        "} else {\n"
+        "  Log 'new build failed to start; rolling back'\n"
+        "  Restore-Backup\n"
+        "}\n"
+        "Remove-Item $Lock -Force\n"
+        "Remove-Item -Path $MyInvocation.MyCommand.Path -Force\n"
+    )
+
+
 def install(
     update_path: Path,
     current_exe: Optional[Path] = None,
     version: str = "",
 ) -> None:
-    """Swap the running exe from a helper script and restart it.
+    """Swap the running exe from a hidden PowerShell helper and restart it.
 
-    The helper renames the running exe away first, waits for the new build's
-    boot marker, and restores the previous exe if the new one never comes up.
-    `ping` is the only delay it uses: unlike `timeout`, it never allocates a
-    console, which is what made older helpers flash windows while retrying.
+    The helper renames the running exe away, moves the download in, launches it
+    once (twice only if the first try never reaches the boot marker), and rolls
+    back to the previous exe otherwise. It runs windowless, tracks the PID it
+    started and kills only that process tree, so a failed launch leaves no
+    stray dialogs, and it waits a few seconds before starting the new build so
+    antivirus scanning of the fresh exe finishes first.
     """
     target = Path(current_exe or sys.executable).resolve()
     update_path = Path(update_path).resolve()
@@ -273,79 +390,13 @@ def install(
     backup = target.with_name(target.name + ".old")
     marker = boot_marker(version)
     lock = Path(tempfile.gettempdir()) / "schnellvpn-update.lock"
-    if lock.exists() and time.time() - lock.stat().st_mtime > 600:
+    if lock.exists() and time.time() - lock.stat().st_mtime > HELPER_LOCK_MINUTES * 60:
         lock.unlink(missing_ok=True)
     log_path = app_data_dir() / "updates" / "install.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    script = Path(tempfile.gettempdir()) / f"schnellvpn-update-{os.getpid()}.cmd"
-
-    def q(path: Path) -> str:
-        return str(path).replace('"', '""')
-
+    script = Path(tempfile.gettempdir()) / f"schnellvpn-update-{os.getpid()}.ps1"
     script.write_text(
-        "@echo off\r\n"
-        "setlocal\r\n"
-        'set "own="\r\n'
-        f'if exist "{q(lock)}" (\r\n'
-        f'  echo [%date% %time%] another installer is running >> "{q(log_path)}"\r\n'
-        "  goto end\r\n"
-        ")\r\n"
-        f'echo running > "{q(lock)}"\r\n'
-        'set "own=1"\r\n'
-        f'echo [%date% %time%] installing {version} >> "{q(log_path)}"\r\n'
-        f'if exist "{q(marker)}" del "{q(marker)}" >nul 2>&1\r\n'
-        f'if exist "{q(backup)}" del "{q(backup)}" >nul 2>&1\r\n'
-        "for /L %%i in (1,1,180) do (\r\n"
-        f'  ren "{q(target)}" "{target.name}.old" >nul 2>&1 && goto swapped\r\n'
-        "  ping -n 2 127.0.0.1 >nul\r\n"
-        ")\r\n"
-        f'echo old exe stayed locked >> "{q(log_path)}"\r\n'
-        "goto end\r\n"
-        ":swapped\r\n"
-        f'if not exist "{q(update_path)}" goto missing\r\n'
-        "for /L %%i in (1,1,10) do (\r\n"
-        f'  move /Y "{q(update_path)}" "{q(target)}" >nul 2>&1 && goto boots\r\n'
-        "  ping -n 2 127.0.0.1 >nul\r\n"
-        ")\r\n"
-        "goto restore\r\n"
-        ":missing\r\n"
-        f'echo downloaded update file is missing >> "{q(log_path)}"\r\n'
-        "goto restore\r\n"
-        ":boots\r\n"
-        "ping -n 3 127.0.0.1 >nul\r\n"
-        "for /L %%i in (1,1,3) do (\r\n"
-        f'  start "" "{q(target)}"\r\n'
-        "  for /L %%j in (1,1,20) do (\r\n"
-        f'    if exist "{q(marker)}" goto ok\r\n'
-        "    ping -n 2 127.0.0.1 >nul\r\n"
-        "  )\r\n"
-        f'  echo launch attempt %%i did not reach the app >> "{q(log_path)}"\r\n'
-        ")\r\n"
-        ":restore\r\n"
-        f'echo new build failed to start; restoring backup >> "{q(log_path)}"\r\n'
-        f'taskkill /F /IM "{target.name}" >nul 2>&1\r\n'
-        "ping -n 3 127.0.0.1 >nul\r\n"
-        f'if exist "{q(target)}" del "{q(target)}" >nul 2>&1\r\n'
-        "for /L %%i in (1,1,10) do (\r\n"
-        f'  if not exist "{q(backup)}" goto restored\r\n'
-        f'  ren "{q(backup)}" "{target.name}" >nul 2>&1\r\n'
-        f'  if exist "{q(target)}" goto restored\r\n'
-        "  ping -n 2 127.0.0.1 >nul\r\n"
-        ")\r\n"
-        ":restored\r\n"
-        f'if exist "{q(target)}" start "" "{q(target)}"\r\n'
-        "goto end\r\n"
-        ":ok\r\n"
-        "for /L %%i in (1,1,5) do (\r\n"
-        f'  if not exist "{q(backup)}" goto cleaned\r\n'
-        f'  del "{q(backup)}" >nul 2>&1\r\n'
-        "  ping -n 2 127.0.0.1 >nul\r\n"
-        ")\r\n"
-        ":cleaned\r\n"
-        f'echo [%date% %time%] update ok >> "{q(log_path)}"\r\n'
-        ":end\r\n"
-        f'if defined own if exist "{q(lock)}" del "{q(lock)}" >nul 2>&1\r\n'
-        'del "%~f0" >nul 2>&1\r\n',
+        _helper_script(target, update_path, backup, marker, lock, log_path, version),
         encoding="ascii",
     )
     flags = 0
@@ -356,7 +407,17 @@ def install(
             | getattr(subprocess, "CREATE_NO_WINDOW", 0)
         )
     subprocess.Popen(
-        ["cmd", "/c", str(script)],
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-File",
+            str(script),
+        ],
         cwd=str(target.parent),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -364,3 +425,9 @@ def install(
         creationflags=flags,
         close_fds=True,
     )
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        if lock.exists():
+            return
+        time.sleep(0.25)
+    raise RuntimeError("the update helper did not start")

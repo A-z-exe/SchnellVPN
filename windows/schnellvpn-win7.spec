@@ -38,6 +38,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
+    runtime_tmpdir=r"%LOCALAPPDATA%\SchnellVPN\runtime",
     console=False,
     disable_windowed_traceback=False,
     icon=str(icon) if icon.is_file() else None,
