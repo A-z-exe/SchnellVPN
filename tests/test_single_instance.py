@@ -10,14 +10,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 import schnellvpn  # noqa: F401  (installs the PySide2 shim on Win7 builds)
-from PySide6.QtWidgets import QApplication, QMainWindow
+from PySide6.QtWidgets import QMainWindow
 
 from schnellvpn import app as app_module
-
-
-@pytest.fixture(scope="module")
-def qt_app():
-    return QApplication.instance() or QApplication([])
 
 
 def test_second_launch_raises_the_first_window(qt_app, monkeypatch):

@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 import schnellvpn.ui.main_window as mw
-from PySide6.QtWidgets import QApplication
+from shiboken6 import delete as delete_qt
 
 from schnellvpn.core.models import VpnServer
 from schnellvpn.core.store import Store
@@ -38,11 +38,6 @@ class FakeClient:
 
     def logs(self, max_bytes=20000):
         return ""
-
-
-@pytest.fixture(scope="module")
-def qt_app():
-    return QApplication.instance() or QApplication([])
 
 
 def pump(app, predicate, timeout=6.0):
@@ -97,8 +92,7 @@ def test_smart_connect_picks_the_fastest(tmp_path, qt_app, monkeypatch):
         assert window.client.link == "vmess://fast"
     finally:
         window.shutdown()
-        window.deleteLater()
-        qt_app.processEvents()
+        delete_qt(window)
 
 
 def test_failover_switches_to_the_next_server(tmp_path, qt_app, monkeypatch):
@@ -118,8 +112,7 @@ def test_failover_switches_to_the_next_server(tmp_path, qt_app, monkeypatch):
         assert window.store.profile.selected_server_id == 2
     finally:
         window.shutdown()
-        window.deleteLater()
-        qt_app.processEvents()
+        delete_qt(window)
 
 
 def test_disconnect_cancels_recovery(tmp_path, qt_app):
@@ -136,8 +129,7 @@ def test_disconnect_cancels_recovery(tmp_path, qt_app):
         assert window.state == mw.STATE_IDLE
     finally:
         window.shutdown()
-        window.deleteLater()
-        qt_app.processEvents()
+        delete_qt(window)
 
 
 def test_bounded_mode_gives_up(tmp_path, qt_app):
@@ -153,5 +145,4 @@ def test_bounded_mode_gives_up(tmp_path, qt_app):
         assert window._reconnect_attempt >= 3
     finally:
         window.shutdown()
-        window.deleteLater()
-        qt_app.processEvents()
+        delete_qt(window)
