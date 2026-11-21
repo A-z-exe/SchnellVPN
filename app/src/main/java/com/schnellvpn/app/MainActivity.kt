@@ -2246,3 +2246,43 @@ fun EditServerDialog(
         }
     }
 }
+
+// ==================== Notice Dialog (اعلان استاتیک notices.json) ====================
+@Composable
+fun NoticeDialog(
+    colors: AppColors,
+    notice: AppNotice,
+    onDismiss: () -> Unit,
+    onUpdate: () -> Unit
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier
+                .padding(24.dp)
+                .background(colors.surface, RoundedCornerShape(18.dp))
+                .border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                .clickable(onClick = {})
+                .padding(18.dp)
+        ) {
+            val accent = if (notice.level == "critical") colors.coral else colors.amber
+            Text(notice.title, color = accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+            Text(notice.message, color = colors.textDim, fontSize = 13.sp, lineHeight = 19.sp)
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (notice.update) {
+                    GhostButton(colors, "بعداً", onClick = onDismiss, modifier = Modifier.weight(1f))
+                    PrimaryButton(colors, "دانلود به‌روزرسانی", onClick = onUpdate, modifier = Modifier.weight(1f))
+                } else {
+                    PrimaryButton(colors, "باشه", onClick = onDismiss, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
