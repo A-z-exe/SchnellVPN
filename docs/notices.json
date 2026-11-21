@@ -1,4 +1,22 @@
 {
   "schema": 1,
-  "notices": []
+  "notices": [
+    {
+      "id": "win-self-update-fix-1.5.4",
+      "level": "warning",
+      "platforms": ["windows"],
+      "max_version": "1.5.3",
+      "update": true,
+      "title": {
+        "fa": "به‌روزرسانی ویندوز ۱.۵.۴",
+        "en": "Windows update 1.5.4",
+        "de": "Windows-Update 1.5.4"
+      },
+      "message": {
+        "fa": "خرابی به‌روزرسانی خودکار ویندوز در نسخه ۱.۵.۴ برطرف شد. اگر پس از زدن «به‌روزرسانی» پنجره‌های cmd پشت‌سرهم باز شد یا خطای python312.dll دیدید، برنامه را ببندید و exe نسخه ۱.۵.۴ را از صفحه انتشار دانلود و جایگزین فایل فعلی کنید.",
+        "en": "The Windows self-update failure is fixed in 1.5.4. If updating flashed console windows or showed a python312.dll error, close the app and replace the exe with the download from the 1.5.4 release page.",
+        "de": "Der Fehler beim Selbst-Update unter Windows ist in 1.5.4 behoben. Falls beim Aktualisieren Konsolenfenster aufblitzten oder ein python312.dll-Fehler erschien, schließe die App und ersetze die exe durch den Download der Version 1.5.4."
+      }
+    }
+  ]
 }
