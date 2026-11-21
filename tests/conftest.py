@@ -20,3 +20,21 @@ def qt_app():
     from PySide6.QtWidgets import QApplication
 
     return QApplication.instance() or QApplication([])
+
+
+_exit_code = 0
+
+
+def pytest_sessionfinish(session, exitstatus):
+    global _exit_code
+    _exit_code = int(exitstatus)
+
+
+def pytest_unconfigure(config):
+    # CPython 3.10 + PySide6 aborts in AIX/Linux finalization with
+    # "none_dealloc: deallocating None" after every test has passed. Leave the
+    # process before that GC pass; the real exit status is preserved.
+    if os.environ.get("CI") and sys.platform.startswith("linux"):
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(_exit_code)
