@@ -137,6 +137,7 @@ class MainActivity : ComponentActivity() {
     private var smartConnect by mutableStateOf(false)
     private var showHotspotInfo by mutableStateOf(false)
     private var hotspotIps by mutableStateOf<List<String>>(emptyList())
+    private var pendingNotices by mutableStateOf<List<AppNotice>>(emptyList())
 
     // پروفایل‌های مستقل (پروفایل ۱، ۲، ۳ …) — هر کدام سرورها و اشتراک خودش را دارد
     private val profiles = mutableStateListOf<ServerProfile>()
@@ -303,6 +304,17 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 delay(1900)
                 showSplash = false
+            }
+
+            // اعلان‌های استاتیک صفحه‌ی پروژه؛ هر اعلان فقط یک‌بار دیده می‌شود
+            LaunchedEffect(Unit) {
+                delay(2500)
+                val found = runCatching { NoticeFetcher.fetchUnseen(this@MainActivity) }
+                    .getOrDefault(emptyList())
+                if (found.isNotEmpty()) {
+                    found.forEach { NoticeFetcher.markSeen(this@MainActivity, it.id) }
+                    pendingNotices = found
+                }
             }
 
             val layoutDirection =
@@ -555,6 +567,18 @@ class MainActivity : ComponentActivity() {
                             ShareDialog(colors, data.title, data.text, onDismiss = { shareData = null })
                         }
 
+                        pendingNotices.firstOrNull()?.let { item ->
+                            NoticeDialog(
+                                colors = colors,
+                                notice = item,
+                                onDismiss = { pendingNotices = pendingNotices.drop(1) },
+                                onUpdate = {
+                                    pendingNotices = pendingNotices.drop(1)
+                                    updateNow(scope)
+                                }
+                            )
+                        }
+
                         if (showHotspotInfo) {
                             HotspotInfoDialog(
                                 colors = colors,
@@ -599,6 +623,21 @@ class MainActivity : ComponentActivity() {
             val info = UpdateManager.checkForUpdate(this@MainActivity)
             updateState = if (info == null) UpdateUiState.Idle else UpdateUiState.Available(info)
             if (info == null) showToast(scope, "نسخه‌ی جدیدی موجود نیست")
+        }
+    }
+
+    /** دکمه‌ی «دانلود به‌روزرسانی» در اعلان: بررسی و سپس دانلود/نصب یک‌مرحله‌ای. */
+    private fun updateNow(scope: kotlinx.coroutines.CoroutineScope) {
+        scope.launch {
+            if (updateState is UpdateUiState.Checking || updateState is UpdateUiState.Downloading) return@launch
+            updateState = UpdateUiState.Checking
+            val info = UpdateManager.checkForUpdate(this@MainActivity)
+            updateState = if (info == null) UpdateUiState.Idle else UpdateUiState.Available(info)
+            if (info == null) {
+                showToast(scope, "نسخه‌ی جدیدی موجود نیست")
+                return@launch
+            }
+            downloadAndInstallUpdate(scope, info)
         }
     }
 

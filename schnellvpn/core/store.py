@@ -20,6 +20,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "probe_interval": 20,
     "smart_connect": True,
     "always_on": True,
+    "seen_notices": [],
 }
 
 

@@ -6,7 +6,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QLockFile, Qt
+from PySide6.QtCore import QLockFile, Qt, QTimer
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
@@ -138,6 +138,7 @@ def main() -> int:
     window = MainWindow(store, data_dir)
     server = _listen_for_relaunch(window)
     window.show()
+    QTimer.singleShot(2500, window.check_notices)
     _mark_boot_ok()
     try:
         return app.exec()

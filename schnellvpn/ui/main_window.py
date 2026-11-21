@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
-from ..core import speedstats, subscription, updater
+from ..core import notices, speedstats, subscription, updater
 from ..core.client import TunnelClient
 from ..core.delay import measure_delays
 from ..core.links import endpoint_of
@@ -134,6 +134,9 @@ class MainWindow(QMainWindow):
         self._pending_update: Optional[updater.UpdateInfo] = None
         self._installing = False
         self._address_cache: dict[str, str] = {}
+        self._notices_checked = False
+        self._pending_notices: list[notices.Notice] = []
+        self._notice_box: Optional[QMessageBox] = None
 
         self.setWindowTitle("SchnellVPN")
         self.setWindowIcon(app_icon())
@@ -1080,6 +1083,60 @@ class MainWindow(QMainWindow):
     def _update_download_failed(self, exc: Exception) -> None:
         self.update_button.setEnabled(True)
         self._set_hint(f"{t(self.lang, 'update_failed')}: {exc}")
+
+    # ------------------------------------------------------------------ notices
+
+    def check_notices(self) -> None:
+        """Ask the static notice page once per run; offline means no notices."""
+        if self._notices_checked:
+            return
+        self._notices_checked = True
+        self._start_task(
+            lambda: notices.fetch(__version__, notices.platform_name()),
+            self._notices_loaded,
+            lambda _exc: None,
+        )
+
+    def _notices_loaded(self, items: list) -> None:
+        seen = {str(item) for item in self.store.get_setting("seen_notices", []) or []}
+        fresh = [notice for notice in items if notice.id not in seen]
+        if not fresh:
+            return
+        seen.update(notice.id for notice in fresh)
+        self.store.set_setting("seen_notices", sorted(seen))
+        self._pending_notices.extend(fresh)
+        self._show_next_notice()
+
+    def _show_next_notice(self) -> None:
+        if not self._pending_notices:
+            return
+        notice = self._pending_notices.pop(0)
+        icon = {
+            "critical": QMessageBox.Critical,
+            "warning": QMessageBox.Warning,
+        }.get(notice.level, QMessageBox.Information)
+        box = QMessageBox(self)
+        box.setIcon(icon)
+        box.setWindowTitle(notices.localized(notice.title, self.lang))
+        box.setText(notices.localized(notice.message, self.lang))
+        update_button = None
+        if notice.update:
+            update_button = box.addButton(t(self.lang, "notice_update"), QMessageBox.AcceptRole)
+        close_button = box.addButton(t(self.lang, "notice_close"), QMessageBox.RejectRole)
+        box.setDefaultButton(update_button or close_button)
+        box.setWindowModality(Qt.WindowModal)
+        self._notice_box = box
+
+        def finished(button) -> None:
+            if self._notice_box is box:
+                self._notice_box = None
+            box.deleteLater()
+            if update_button is not None and button is update_button:
+                QTimer.singleShot(0, self._check_update)
+            QTimer.singleShot(400, self._show_next_notice)
+
+        box.buttonClicked.connect(finished)
+        box.show()
 
     # ------------------------------------------------------------------ connect
 
