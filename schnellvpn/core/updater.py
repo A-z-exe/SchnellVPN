@@ -270,6 +270,7 @@ def _helper_script(
     log_path: Path,
     version: str,
 ) -> str:
+    runtime_dir = r"%LOCALAPPDATA%\SchnellVPN\runtime"
     return (
         "$ErrorActionPreference = 'SilentlyContinue'\n"
         f"$Target = {_ps(target)}\n"
@@ -280,7 +281,7 @@ def _helper_script(
         f"$Log = {_ps(log_path)}\n"
         f"$Version = {_ps(version)}\n"
         f"$Leaf = {_ps(target.name)}\n"
-        f"$Runtime = {_ps(r'%LOCALAPPDATA%\SchnellVPN\runtime')}\n"
+        f"$Runtime = {_ps(runtime_dir)}\n"
         "$Runtime = [Environment]::ExpandEnvironmentStrings($Runtime)\n"
         "\n"
         "function Log([string]$line) {\n"
