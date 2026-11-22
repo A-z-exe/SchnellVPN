@@ -5,19 +5,30 @@ plugins {
 
 android {
     namespace = "com.schnellvpn.app"
-    compileSdk = 34
-    ndkVersion = "26.3.11579264"
+    compileSdk = 36
+    ndkVersion = "27.1.12345678"
 
     defaultConfig {
         applicationId = "com.schnellvpn.app"
         minSdk = 24
-        targetSdk = 34
-        versionCode = 15
-        versionName = "1.5.5"
+        targetSdk = 36
+        versionCode = 17
+        versionName = "1.6.1"
 
         // hev-socks5-tunnel is built with its default JNI class (hev/htproxy/TProxyService),
         // which is declared in app/src/main/java/hev/htproxy/TProxyService.kt
-        ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
+        // Android 8–17+: real phones are arm64/armeabi, emulators are x86_64/x86.
+        ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64") }
+    }
+
+    // One APK per ABI keeps the phone download around 65 MB instead of 170 MB.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = false
+        }
     }
 
     externalNativeBuild {
