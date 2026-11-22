@@ -18,7 +18,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "use_system_proxy": True,
     "minimize_to_tray": True,
     "probe_interval": 20,
-    "smart_connect": True,
+    "smart_connect": False,
     "always_on": True,
     "seen_notices": [],
 }
