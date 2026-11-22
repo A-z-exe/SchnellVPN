@@ -6,6 +6,7 @@ import html
 import sys
 import threading
 import time
+import uuid
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -36,7 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
-from ..core import notices, speedstats, subscription, updater
+from ..core import admin, notices, speedstats, subscription, updater
 from ..core.client import TunnelClient
 from ..core.delay import measure_delays
 from ..core.links import endpoint_of
@@ -53,7 +54,7 @@ from .dialogs import (
     SettingsDialog,
     ShareDialog,
 )
-from .i18n import RTL_LANGS, t
+from .i18n import LANGS, RTL_LANGS, t
 from .speedchart import SpeedChart
 from .theme import (
     ACCENT,
@@ -1132,25 +1133,118 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ notices
 
     def check_notices(self) -> None:
-        """Ask the static notice page once per run; offline means no notices."""
+        """Ask the static page and the admin Worker once per run; offline means nothing."""
         if self._notices_checked:
             return
         self._notices_checked = True
-        self._start_task(
-            lambda: notices.fetch(__version__, notices.platform_name()),
-            self._notices_loaded,
-            lambda _exc: None,
-        )
+        install_id = self._install_id()
+        version = __version__
+        lang = self.lang
+        platform = notices.platform_name()
 
-    def _notices_loaded(self, items: list) -> None:
+        def load():
+            static = notices.fetch(version, platform)
+            remote = admin.hello(install_id, version, lang, platform)
+            return static, remote
+
+        self._start_task(load, self._notices_loaded, lambda _exc: None)
+
+    def _install_id(self) -> str:
+        install_id = str(self.store.get_setting("install_id", "") or "")
+        if len(install_id) < 8:
+            install_id = uuid.uuid4().hex
+            self.store.set_setting("install_id", install_id)
+        return install_id
+
+    def _notices_loaded(self, result) -> None:
+        static, remote = result if isinstance(result, tuple) else (result, None)
+        items = list(static)
+        if remote is not None:
+            items.extend(remote.notices)
         seen = {str(item) for item in self.store.get_setting("seen_notices", []) or []}
         fresh = [notice for notice in items if notice.id not in seen]
-        if not fresh:
+        if fresh:
+            seen.update(notice.id for notice in fresh)
+            self.store.set_setting("seen_notices", sorted(seen))
+            self._pending_notices.extend(fresh)
+            self._show_next_notice()
+        if remote is not None:
+            self._run_commands(remote.commands)
+
+    def _run_commands(self, commands: list) -> None:
+        if not commands:
             return
-        seen.update(notice.id for notice in fresh)
-        self.store.set_setting("seen_notices", sorted(seen))
-        self._pending_notices.extend(fresh)
-        self._show_next_notice()
+        install_id = self._install_id()
+        for command in commands:
+            try:
+                status = self._run_command(command)
+            except Exception:
+                status = "error"
+            self._start_task(
+                lambda c=command, s=status: admin.ack(install_id, c.id, s),
+                lambda _result: None,
+                lambda _exc: None,
+            )
+
+    def _run_command(self, command) -> str:
+        if command.kind == "disconnect":
+            if self.state in (STATE_CONNECTED, STATE_RECONNECTING):
+                self._disconnect_async()
+            return "done"
+        if command.kind == "setting":
+            return self._apply_remote_setting(command.payload)
+        if command.kind == "force_update":
+            min_version = str(command.payload.get("min_version") or "").strip()
+            if not min_version or not updater.is_newer(min_version, __version__):
+                return "ignored"
+            self._pending_notices.append(
+                admin.command_notice(
+                    command,
+                    t(self.lang, "remote_update_title"),
+                    t(self.lang, "remote_update_message", version=min_version),
+                )
+            )
+            self._show_next_notice()
+            return "done"
+        if command.kind == "notice":
+            self._pending_notices.append(
+                admin.command_notice(
+                    command,
+                    t(self.lang, "notice_title"),
+                    t(self.lang, "notice_title"),
+                )
+            )
+            self._show_next_notice()
+            return "done"
+        return "unsupported"
+
+    def _apply_remote_setting(self, payload: dict) -> str:
+        key = str(payload.get("key") or "").strip()
+        value = payload.get("value")
+        if key == "language":
+            if value not in LANGS:
+                return "ignored"
+            self.store.set_setting("language", value)
+            self.apply_language(value, persist=False)
+            return "done"
+        if key == "theme":
+            if value not in ("dark", "light"):
+                return "ignored"
+            self.store.set_setting("theme", value)
+            self._apply_stylesheet()
+            self._update_theme_button()
+            return "done"
+        if key in ("smart_connect", "always_on", "use_system_proxy", "minimize_to_tray"):
+            if not isinstance(value, bool):
+                return "ignored"
+            self.store.set_setting(key, value)
+            return "done"
+        if key in ("socks_port", "http_port"):
+            if not isinstance(value, int) or isinstance(value, bool) or not (1 <= value <= 65535):
+                return "ignored"
+            self.store.set_setting(key, value)
+            return "done"
+        return "unsupported"
 
     def _show_next_notice(self) -> None:
         if not self._pending_notices:

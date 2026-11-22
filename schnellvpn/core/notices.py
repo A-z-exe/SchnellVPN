@@ -38,7 +38,7 @@ def platform_name() -> str:
     return sys.platform
 
 
-def _text(value: Any) -> dict[str, str]:
+def text(value: Any) -> dict[str, str]:
     """Accept {"fa": "...", ...} or a single string (treated as English)."""
     if isinstance(value, str):
         return {"en": value} if value.strip() else {}
@@ -85,8 +85,8 @@ def parse(payload: Any, version: str, platform: str) -> list[Notice]:
         if not isinstance(item, dict):
             continue
         notice_id = str(item.get("id") or "").strip()
-        title = _text(item.get("title"))
-        message = _text(item.get("message"))
+        title = text(item.get("title"))
+        message = text(item.get("message"))
         if not notice_id or not title or not message:
             continue
         if not _matches_platform(item.get("platforms"), platform):

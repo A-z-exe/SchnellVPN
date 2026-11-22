@@ -6,23 +6,29 @@
 ![Windows](https://img.shields.io/badge/platform-Windows-blue)
 ![Linux](https://img.shields.io/badge/platform-Linux-yellow)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
-![Version](https://img.shields.io/badge/version-1.5.5-blue)
+![Version](https://img.shields.io/badge/version-1.6.0-blue)
 
 **SchnellVPN** is a VPN client built on **Xray-core**, shipped for three platforms that share the
 same engine, link formats and honesty checks (no "connected" before data really flows):
 
 | | 🤖 **Android** (stable) | 🪟 **Windows** | 🐧 **Linux** |
 | --- | --- | --- | --- |
-| Version | **1.5.5** | **1.5.5** | **1.5.5** |
+| Version | **1.6.0** | **1.6.0** | **1.6.0** |
 | Built with | Kotlin + Jetpack Compose | Python + PySide6 | Python + PySide6 |
 | Engine | AndroidLibXrayLite | Xray-core 26.x (`xray.exe`, bundled) | Xray-core (bundled) |
 | Tunnel | TUN (VpnService) + hev-socks5-tunnel | SOCKS/HTTP + WinINET system proxy | SOCKS/HTTP + GNOME (GSettings) proxy |
 | Extras | QR import, split tunneling, per-app auto-connect, hotspot sharing, update notices | smart connect, failover, always-on reconnect, in-app update with rollback, update notices, connection log, bug-report email, live speed chart, profiles, tray, fa/en/de | `.deb` + portable AppImage, smart connect, failover, always-on reconnect, update notices, tray, crash-safe proxy restore, fa/en/de |
-| Download | [Latest APK](https://github.com/A-z-exe/SchnellVPN/releases/latest) | `SchnellVPN.exe` / `SchnellVPN-Win7.exe` | `.deb` / `.AppImage` |
+| Download | [APK per ABI](https://github.com/A-z-exe/SchnellVPN/releases/latest) | `SchnellVPN.exe` / `SchnellVPN-Win7.exe` | `.deb` / `.AppImage` |
 
 All three builds (`SchnellVPN.apk`, `SchnellVPN.exe`, `SchnellVPN-Win7.exe`, `.deb`, `.AppImage`)
 are attached to the same [release](https://github.com/A-z-exe/SchnellVPN/releases). The desktop
 apps update themselves from that release; the Android app checks the same feed.
+
+The Android APK installs on **Android 8 (API 24) through the latest release (Android 16/17)**.
+The release ships one APK per CPU type so the download stays around 65 MB instead of 170 MB:
+`*-arm64-v8a.apk` for nearly all phones, `*-armeabi-v7a.apk` for older 32-bit phones, and
+`*-x86_64.apk` / `*-x86.apk` for emulators. Native libraries are 16 KB-page compatible, which
+Android 15+ requires on 64-bit devices. The in-app updater picks the right APK automatically.
 
 The Android app supports VLESS (Reality / WS / gRPC / XHTTP), VMess, Trojan, Shadowsocks and
 SOCKS5 links, with multiple subscription profiles, QR import, direct config links, split tunneling,
@@ -80,6 +86,7 @@ updates from GitHub.
 - ✅ **آیکن اختصاصی اپ در نوار وضعیت** کنار آیکن اینترنت
 - ✅ **رابط کاربری چندزبانه**: فارسی، English، Deutsch (با تغییر خودکار جهت‌چیدمان RTL/LTR)
 - ✅ **به‌روزرسانی درون‌برنامه از GitHub**: بررسی نسخه، دانلود، بررسی SHA-256 و اجرای نصب‌کننده
+- ✅ **کانال اعلان و فرمان بدون حساب کاربری**: هر نصب یک شناسه‌ی تصادفی می‌سازد و فقط پلتفرم/نسخه/زبان را می‌فرستد تا پیام‌ها و فرمان‌های اضطراری (به‌روزرسانی اجباری، قطع اتصال) را بگیرد؛ اگر این سرور در دسترس نباشد، اپ بدون تغییر عادی کار می‌کند
 
 > ⚠️ پلاگین‌های Shadowsocks (v2ray-plugin و …) پشتیبانی نمی‌شوند و این لینک‌ها موقع ورود رد می‌شوند.
 > پروتکل‌های Hysteria2 / TUIC / WireGuard در هسته‌ی Xray وجود ندارند؛ اگر اشتراکی فقط شامل این‌ها باشد، پیام مشخص نمایش داده می‌شود.
@@ -140,7 +147,11 @@ cd SchnellVPN
 
 **آیا به Google Play Services نیاز دارد؟** نه؛ اسکن QR به‌صورت آفلاین با ZXing انجام می‌شود.
 
+**روی اندروید ۱۶ و ۱۷ نصب می‌شود؟** بله؛ از اندروید ۸ تا آخرین نسخه بدون مشکل نصب می‌شود. برای گوشی معمولی فایل `*-arm64-v8a.apk`، برای گوشی‌های ۳۲ بیتی قدیمی `*-armeabi-v7a.apk` و برای شبیه‌ساز `*-x86_64.apk` را نصب کن؛ کتابخانه‌های نیتیو با پشتیبانی صفحه‌ی حافظه‌ی ۱۶ کیلوبایتی (الزام اندروید ۱۵ به بعد) ساخته شده‌اند و به‌روزرسانی درون‌برنامه خودش APK مناسب گوشی را انتخاب می‌کند.
+
 **اشتراک روی هات‌اسپات روت می‌خواهد؟** نه. یک پروکسی HTTP محلی روی پورت `10809` اجرا می‌شود و دستگاه‌ها باید پروکسی را دستی تنظیم کنند. اشتراک شفاف بدون روت در اندروید ممکن نیست.
+
+**چه اطلاعاتی به سرور پروژه می‌رود؟** هیچ حساب یا اطلاعات شخصی. هر نصب یک شناسه‌ی تصادفی (`install_id`) می‌سازد و همراه پلتفرم/نسخه/زبان یک‌بار پس از باز شدن به سرور اعلان پروژه می‌فرستد تا پیام‌ها و فرمان‌های اضطراری دریافت شوند؛ در دسترس نبودن این سرور هیچ اثری روی اتصال ندارد.
 
 **اینترنت گوشی خاموش باشد چه می‌شود؟** اپ اجازه‌ی اتصال نمی‌دهد و پینگ الکی نشان نمی‌دهد؛ درستی مسیر هم بعد از اتصال با یک درخواست واقعی از داخل تونل بررسی می‌شود.
 

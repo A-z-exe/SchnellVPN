@@ -129,6 +129,7 @@ def test_window_shows_each_notice_once(tmp_path, qt_app, monkeypatch):
         update=False,
     )
     monkeypatch.setattr(mw.notices, "fetch", lambda _version, _platform: [item])
+    monkeypatch.setattr(mw.admin, "hello", lambda *_args, **_kwargs: None)
 
     store = Store(path=tmp_path / "profiles.json", data_dir=tmp_path)
     window = mw.MainWindow(store, tmp_path)
