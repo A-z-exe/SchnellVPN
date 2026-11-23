@@ -81,6 +81,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import kotlin.math.max
 import kotlin.math.min
 
@@ -314,15 +315,21 @@ class MainActivity : ComponentActivity() {
                 showSplash = false
             }
 
-            // اعلان‌های استاتیک صفحه‌ی پروژه؛ هر اعلان فقط یک‌بار دیده می‌شود
+            // اعلان‌های استاتیک صفحه‌ی پروژه + پیام/فرمان‌های Worker ادمین؛ هر اعلان یک‌بار
             LaunchedEffect(Unit) {
                 delay(2500)
-                val found = runCatching { NoticeFetcher.fetchUnseen(this@MainActivity) }
+                val lang = language.code
+                val known = NoticeFetcher.seen(this@MainActivity)
+                val static = runCatching { NoticeFetcher.fetchUnseen(this@MainActivity) }
                     .getOrDefault(emptyList())
-                if (found.isNotEmpty()) {
-                    found.forEach { NoticeFetcher.markSeen(this@MainActivity, it.id) }
-                    pendingNotices = found
+                val hello = runCatching { AdminClient.hello(this@MainActivity, lang) }.getOrNull()
+                val remote = hello?.notices.orEmpty().filter { it.id !in known }
+                val merged = (static + remote).distinctBy { it.id }
+                if (merged.isNotEmpty()) {
+                    merged.forEach { NoticeFetcher.markSeen(this@MainActivity, it.id) }
+                    pendingNotices = pendingNotices + merged
                 }
+                hello?.commands?.forEach { handleRemoteCommand(scope, it) }
             }
 
             val layoutDirection =
@@ -673,6 +680,91 @@ class MainActivity : ComponentActivity() {
             } else {
                 updateState = UpdateUiState.Error("دانلود ناموفق بود — دوباره تلاش کن")
             }
+        }
+    }
+
+    /** اجرای فرمان‌های Worker ادمین؛ نتیجه برای هر فرمان به سرور گزارش می‌شود. */
+    private fun handleRemoteCommand(scope: kotlinx.coroutines.CoroutineScope, command: RemoteCommand) {
+        val status = when (command.kind) {
+            "disconnect" -> {
+                stopVpn()
+                "done"
+            }
+            "setting" -> applyRemoteSetting(command.payload)
+            "force_update" -> {
+                val minVersion = command.payload.optString("min_version").trim()
+                if (minVersion.isNotEmpty() &&
+                    UpdateManager.isNewer(minVersion, UpdateManager.currentVersion(this))
+                ) {
+                    pendingNotices = pendingNotices + commandNotice(command, minVersion)
+                    "done"
+                } else {
+                    "ignored"
+                }
+            }
+            "notice" -> {
+                pendingNotices = pendingNotices + commandNotice(command, "")
+                "done"
+            }
+            else -> "unsupported"
+        }
+        scope.launch { AdminClient.ack(this@MainActivity, command.id, status) }
+    }
+
+    private fun commandNotice(command: RemoteCommand, minVersion: String): AppNotice {
+        val force = command.kind == "force_update"
+        val payload = command.payload
+        val lang = language.code
+        val fallbackTitle = if (force) "به‌روزرسانی لازم است" else "اعلان"
+        val fallbackMessage = if (force) {
+            "نسخهٔ شما قدیمی است. برای ادامه، به نسخهٔ $minVersion به‌روزرسانی کن."
+        } else {
+            fallbackTitle
+        }
+        val level = payload.optString("level", "info").lowercase()
+        return AppNotice(
+            id = "cmd-${command.id}",
+            level = when {
+                force -> "critical"
+                level in setOf("info", "warning", "critical") -> level
+                else -> "info"
+            },
+            title = NoticeFetcher.localized(payload.opt("title"), lang) ?: fallbackTitle,
+            message = NoticeFetcher.localized(payload.opt("message"), lang) ?: fallbackMessage,
+            update = force || payload.optBoolean("update", false)
+        )
+    }
+
+    private fun applyRemoteSetting(payload: JSONObject): String {
+        val value = payload.opt("value")
+        return when (payload.optString("key").trim()) {
+            "language" -> {
+                val code = value as? String ?: return "ignored"
+                val lang = AppLanguage.entries.firstOrNull { it.code.equals(code, ignoreCase = true) }
+                    ?: return "ignored"
+                language = lang
+                ProfileManager.saveLanguage(this, lang.code)
+                "done"
+            }
+            "smart_connect" -> {
+                if (value !is Boolean) return "ignored"
+                smartConnect = value
+                ProfileManager.saveSmartConnect(this, value)
+                "done"
+            }
+            "disconnect_on_lock" -> {
+                if (value !is Boolean) return "ignored"
+                disconnectOnLock = value
+                ProfileManager.saveDisconnectOnLock(this, value)
+                "done"
+            }
+            "hotspot_share" -> {
+                if (value !is Boolean) return "ignored"
+                hotspotShare = value
+                ProfileManager.saveHotspotShare(this, value)
+                "done"
+            }
+            else -> "unsupported"
         }
     }
 

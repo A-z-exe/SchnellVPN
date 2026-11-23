@@ -68,7 +68,11 @@ object NoticeFetcher {
         } finally {
             conn.disconnect()
         }
+        return parse(context, body)
+    }
 
+    /** Parses a `{"notices":[...]}` document; the admin Worker uses the same shape. */
+    fun parse(context: Context, body: String): List<AppNotice> {
         val array = JSONObject(body).optJSONArray("notices") ?: return emptyList()
         val version = UpdateManager.currentVersion(context)
         val lang = ProfileManager.loadLanguage(context)
@@ -106,7 +110,7 @@ object NoticeFetcher {
         return false
     }
 
-    private fun localized(value: Any?, lang: String): String? {
+    fun localized(value: Any?, lang: String): String? {
         if (value is String) return value.trim().ifEmpty { null }
         if (value !is JSONObject) return null
         for (key in listOf(lang, "en", "fa")) {

@@ -42,6 +42,23 @@ object UpdateManager {
     private const val APK_NAME = "SchnellVPN-update.apk"
     private const val HTTP_RANGE_NOT_SATISFIABLE = 416
 
+    /**
+     * Picks the release asset for this device. New releases ship one APK per
+     * ABI (`…-arm64-v8a.apk`); older releases have a single APK without an
+     * ABI suffix and are used as a fallback.
+     */
+    fun pickApk(names: List<String>, abis: List<String>): String? {
+        for (abi in abis) {
+            names.firstOrNull { it.endsWith("-$abi.apk", ignoreCase = true) }
+                ?.let { return it }
+        }
+        return names.firstOrNull { name ->
+            KNOWN_ABIS.none { name.endsWith("-$it.apk", ignoreCase = true) }
+        }
+    }
+
+    private val KNOWN_ABIS = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+
     fun currentVersion(context: Context): String = try {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0"
     } catch (e: Exception) {
@@ -79,20 +96,24 @@ object UpdateManager {
             if (!isNewer(tag, currentVersion(context))) return@withContext null
 
             val assets = obj.optJSONArray("assets") ?: return@withContext null
-            var apkUrl: String? = null
-            var sha: String? = null
-            var size = 0L
+            val apkAssets = ArrayList<JSONObject>()
             for (i in 0 until assets.length()) {
                 val a = assets.optJSONObject(i) ?: continue
                 if (a.optString("name", "").endsWith(".apk", ignoreCase = true)) {
-                    apkUrl = a.optString("browser_download_url", "")
-                    sha = a.optString("digest", "")
-                        .removePrefix("sha256:")
-                        .takeIf { it.isNotBlank() }
-                    size = a.optLong("size", 0)
-                    break
+                    apkAssets.add(a)
                 }
             }
+            val chosenName = pickApk(
+                apkAssets.map { it.optString("name", "") },
+                Build.SUPPORTED_ABIS.toList()
+            ) ?: return@withContext null
+            val chosen = apkAssets.firstOrNull { it.optString("name", "") == chosenName }
+                ?: return@withContext null
+            val apkUrl = chosen.optString("browser_download_url", "")
+            val sha = chosen.optString("digest", "")
+                .removePrefix("sha256:")
+                .takeIf { it.isNotBlank() }
+            val size = chosen.optLong("size", 0)
             if (apkUrl.isNullOrBlank()) return@withContext null
 
             UpdateInfo(
