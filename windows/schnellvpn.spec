@@ -6,6 +6,7 @@ ROOT = Path(SPECPATH)
 datas = [
     (str(ROOT / "vendor" / "xray" / "xray.exe"), "xray"),
     (str(ROOT / "vendor" / "xray" / "LICENSE"), "xray"),
+    (str(ROOT / "resources" / "schnellvpn.png"), "resources"),
 ]
 icon = ROOT / "resources" / "schnellvpn.ico"
 

@@ -44,3 +44,29 @@ def test_score_prefers_delay_then_ping():
     assert server_score(server, {1: 50}, {1: 70}) == 70
     assert server_score(server, {1: 50}, {}) == 50
     assert server_score(server, {}, {}) is None
+
+
+def test_info_servers_are_pinned_first():
+    slow_info = VpnServer(
+        id=1, name="info-slow", label="VMess", link="vless://a@info.example.com:443"
+    )
+    fast = _server(2, "fast")
+    ranked = rank_servers(
+        [fast, slow_info],
+        pings={1: 900, 2: 10},
+        delays={},
+    )
+    assert [s.id for s in ranked] == [1, 2]
+    assert slow_info.pinned is True
+    assert fast.pinned is False
+
+
+def test_info_match_is_case_insensitive_and_anywhere_in_link():
+    upper = VpnServer(
+        id=1, name="upper", label="VMess", link="vmess://INFO.example.com:80#tag"
+    )
+    tagged = VpnServer(
+        id=2, name="tagged", label="VMess", link="vmess://host:80#info.server"
+    )
+    assert upper.pinned is True
+    assert tagged.pinned is True

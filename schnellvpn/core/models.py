@@ -14,6 +14,15 @@ class VpnServer:
     icon: str = "\u25CF"
     source: str = ""
 
+    @property
+    def pinned(self) -> bool:
+        """Servers whose address carries `info.` are kept at the top of the list.
+
+        Checks the whole link (host, SNI and remarks), case-insensitively, so
+        `info.` in a domain like `info.example.com` or in a remark is enough.
+        """
+        return "info." in self.link.lower()
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,

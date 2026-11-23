@@ -653,7 +653,13 @@ class MainWindow(QMainWindow):
             value = self.delays.get(server.id)
             if value is None:
                 value = self.pings.get(server.id)
-            return (value is None, value if value is not None else 0, server.name.lower())
+            # `info.` servers stay pinned at the top regardless of latency.
+            return (
+                not server.pinned,
+                value is None,
+                value if value is not None else 0,
+                server.name.lower(),
+            )
 
         ordered = sorted(profile.servers, key=rank)
         # The automatic order below is by real delay when available, else by ping.
@@ -682,13 +688,16 @@ class MainWindow(QMainWindow):
         if len(profile.servers) < 2:
             return
         values = self.pings if column == 3 else self.delays
-        known = [s for s in profile.servers if values.get(s.id) is not None]
-        unknown = [s for s in profile.servers if values.get(s.id) is None]
+        pinned = [s for s in profile.servers if s.pinned]
+        rest = [s for s in profile.servers if not s.pinned]
+        known = [s for s in rest if values.get(s.id) is not None]
+        unknown = [s for s in rest if values.get(s.id) is None]
         known.sort(
             key=lambda s: (int(values[s.id] or 0), s.name.lower()),
             reverse=descending,
         )
-        ordered = known + unknown
+        pinned.sort(key=lambda s: s.name.lower())
+        ordered = pinned + known + unknown
         self._show_sort_indicator(column, descending=descending)
         if [server.id for server in ordered] == [server.id for server in profile.servers]:
             return

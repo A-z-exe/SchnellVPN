@@ -246,7 +246,27 @@ def stylesheet(theme: str) -> str:
 
 
 def make_logo(size: int = 128) -> QPixmap:
-    """The Android launcher icon: navy tile, white shield, orange bolt."""
+    """The launcher/app icon: white shield, orange bolt, cyan ring.
+
+    Uses the real PNG when it is committed in the repo (so CI builds get the
+    same icon); falls back to the vector-drawn version for bare source trees.
+    """
+    import sys
+
+    roots = [Path(__file__).resolve().parents[2]]
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        roots.insert(0, Path(bundle))
+    candidates = [root / "docs" / "icon.png" for root in roots]
+    candidates += [root / "resources" / "schnellvpn.png" for root in roots]
+    for path in candidates:
+        if path.is_file():
+            loaded = QPixmap(str(path))
+            if not loaded.isNull():
+                return loaded.scaled(
+                    size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
@@ -301,6 +321,28 @@ def make_logo(size: int = 128) -> QPixmap:
 
 
 def app_icon() -> QIcon:
+    """Prefer the real logo PNG; fall back to the drawn logo for source runs."""
+    import sys
+
+    roots = [Path(__file__).resolve().parents[2]]
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        roots.insert(0, Path(bundle))
+    candidates = [root / "resources" / "schnellvpn.png" for root in roots]
+    candidates += [root / "windows" / "resources" / "schnellvpn.png" for root in roots]
+    candidates += [root / "docs" / "icon.png" for root in roots]
+    for path in candidates:
+        if path.is_file():
+            pixmap = QPixmap(str(path))
+            if not pixmap.isNull():
+                icon = QIcon()
+                for size in (16, 24, 32, 48, 64, 128, 256):
+                    icon.addPixmap(
+                        pixmap.scaled(
+                            size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                        )
+                    )
+                return icon
     icon = QIcon()
     for size in (16, 24, 32, 48, 64, 128, 256):
         icon.addPixmap(make_logo(size))

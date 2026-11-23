@@ -17,19 +17,25 @@ from urllib.parse import urlsplit
 
 from .links import endpoint_of, is_local_host, security_of, server_name_of
 
+# Latency probes use the smallest possible response (204 No Content) and
+# prefer plain HTTP where TLS adds a full handshake to the measured time.
+# Order matters: the first reachable endpoint wins, so cheap ones come first.
 HTTP_ENDPOINTS = (
-    "https://www.gstatic.com/generate_204",
-    "https://cp.cloudflare.com/generate_204",
-    "https://1.1.1.1/",
-    "http://neverssl.com/",
+    "http://cp.cloudflare.com/generate_204",
     "http://1.1.1.1/",
+    "https://cp.cloudflare.com/generate_204",
+    "https://www.gstatic.com/generate_204",
+    "http://neverssl.com/",
 )
 # Plain HTTP so a TLS-blocking server is not reported as a broken inbound.
 PROXY_ENDPOINTS = (
-    "http://neverssl.com/",
     "http://cp.cloudflare.com/generate_204",
+    "http://neverssl.com/",
 )
-MAX_PING_MS = 4000
+# A real HTTP round trip is slower than a bare ping; keep the ceiling honest
+# but low enough that a sluggish endpoint cannot inflate every server's score.
+MAX_PING_MS = 3000
+PROBE_SLICE_MS = 1500
 
 
 def _recv_exact(sock: socket.socket, count: int) -> bytes:
@@ -135,7 +141,9 @@ def probe_with_latency(socks_port: int = 10808, timeout_ms: int = 3000) -> Optio
         if left < 0.35:
             break
         try:
-            latency = _http_get_through_socks(url, socks_port, min(left, 2.0))
+            latency = _http_get_through_socks(
+                url, socks_port, min(left, PROBE_SLICE_MS / 1000)
+            )
             if latency is not None:
                 return latency
         except (OSError, ssl.SSLError, ValueError):

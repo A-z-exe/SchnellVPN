@@ -35,6 +35,13 @@ def rank_servers(
 
     def key(server: VpnServer):
         score = server_score(server, pings, delays)
-        return (score is None, score if score is not None else 0, server.name.lower(), server.id)
+        # `info.` servers are pinned first, then by measured score.
+        return (
+            not server.pinned,
+            score is None,
+            score if score is not None else 0,
+            server.name.lower(),
+            server.id,
+        )
 
     return sorted(candidates, key=key)
