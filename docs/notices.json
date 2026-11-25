@@ -2,20 +2,20 @@
   "schema": 1,
   "notices": [
     {
-      "id": "update-to-1-6-2-2026",
+      "id": "update-to-1-6-3-2026",
       "level": "warning",
       "platforms": ["windows", "linux", "android"],
       "max_version": "1.6.1",
       "update": true,
       "title": {
         "fa": "به\u200cروزرسانی به نسخه ۱.۶.۲",
-        "en": "Update to version 1.6.2",
-        "de": "Update auf Version 1.6.2"
+        "en": "Update to version 1.6.3",
+        "de": "Update auf Version 1.6.3"
       },
       "message": {
         "fa": "نسخه ۱.۶.۲ منتشر شد. لطفاً برنامه را به\u200cروزرسانی کنید تا از لوگوی جدید (سبز هنگام اتصال)، تست دقیق\u200cتر تأخیر و بهبود عملکرد سرورها بهره\u200cمند شوید. از قسمت «بررسی به\u200cروزرسانی» در تنظیمات یا دکمهٔ دانلود همین پیام استفاده کنید.",
-        "en": "Version 1.6.2 is available. Please update to enjoy the new two-state logo (green while connected), more accurate delay measurement and server improvements. Use Check for updates in Settings or the download button in this message.",
-        "de": "Version 1.6.2 ist verfügbar. Bitte aktualisiere, um das neue zweifarbige Logo (grün bei Verbindung), genauere Latenzmessung und Serververbesserungen zu erhalten. Nutze „Nach Updates suchen“ in den Einstellungen oder den Download-Button dieser Nachricht."
+        "en": "Version 1.6.3 is available. Please update to enjoy the new two-state logo (green while connected), more accurate delay measurement and server improvements. Use Check for updates in Settings or the download button in this message.",
+        "de": "Version 1.6.3 ist verfügbar. Bitte aktualisiere, um das neue zweifarbige Logo (grün bei Verbindung), genauere Latenzmessung und Serververbesserungen zu erhalten. Nutze „Nach Updates suchen“ in den Einstellungen oder den Download-Button dieser Nachricht."
       }
     },
     {

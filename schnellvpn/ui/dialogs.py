@@ -214,7 +214,7 @@ class SettingsDialog(BaseDialog):
         self.tray = QCheckBox(self.tr_("minimize_to_tray"))
         self.tray.setChecked(bool(settings.get("minimize_to_tray", True)))
         self.smart_connect = QCheckBox(self.tr_("smart_connect"))
-        self.smart_connect.setChecked(bool(settings.get("smart_connect", True)))
+        self.smart_connect.setChecked(bool(settings.get("smart_connect", False)))
         self.always_on = QCheckBox(self.tr_("always_on"))
         self.always_on.setChecked(bool(settings.get("always_on", True)))
 

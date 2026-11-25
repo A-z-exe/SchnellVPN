@@ -7,6 +7,7 @@ datas = [
     (str(ROOT / "vendor" / "xray" / "xray.exe"), "xray"),
     (str(ROOT / "vendor" / "xray" / "LICENSE"), "xray"),
     (str(ROOT / "resources" / "schnellvpn.png"), "resources"),
+    (str(ROOT / "resources" / "schnellvpn_connected.png"), "resources"),
 ]
 icon = ROOT / "resources" / "schnellvpn.ico"
 

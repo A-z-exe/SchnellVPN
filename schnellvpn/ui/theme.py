@@ -246,13 +246,33 @@ def stylesheet(theme: str) -> str:
     return qss.replace("__ARROW__", _arrow_png(arrow_color))
 
 
-def make_logo(size: int = 128) -> QPixmap:
+def make_logo(size: int = 128, green: bool = False) -> QPixmap:
     """The launcher/app icon: white shield, orange bolt, cyan ring.
 
     Uses the real PNG when it is committed in the repo (so CI builds get the
     same icon); falls back to the vector-drawn version for bare source trees.
+    `green=True` draws the connected-state shield in green.
     """
     import sys
+
+    if green:
+        name = "schnellvpn_connected.png"
+        roots = [Path(__file__).resolve().parents[2]]
+        bundle = getattr(sys, "_MEIPASS", None)
+        if bundle:
+            roots.insert(0, Path(bundle))
+        for root in roots:
+            for candidate in (
+                root / "resources" / name,
+                root / "windows" / "resources" / name,
+            ):
+                if candidate.is_file():
+                    loaded = QPixmap(str(candidate))
+                    if not loaded.isNull():
+                        return loaded.scaled(
+                            size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                        )
+        # Fall through to the vector drawing with a green tint.
 
     roots = [Path(__file__).resolve().parents[2]]
     bundle = getattr(sys, "_MEIPASS", None)
@@ -282,8 +302,12 @@ def make_logo(size: int = 128) -> QPixmap:
         QRectF(0, 0, size, size), 22 * unit, 22 * unit
     )
     gradient = QLinearGradient(0, 0, 0, size)
-    gradient.setColorAt(0.0, QColor("#0B192E"))
-    gradient.setColorAt(1.0, QColor("#0F263E"))
+    if green:
+        gradient.setColorAt(0.0, QColor("#0E5A2A"))
+        gradient.setColorAt(1.0, QColor("#0A3D1E"))
+    else:
+        gradient.setColorAt(0.0, QColor("#0B192E"))
+        gradient.setColorAt(1.0, QColor("#0F263E"))
     painter.setPen(Qt.NoPen)
     painter.setBrush(gradient)
     painter.drawPath(tile)
@@ -304,7 +328,7 @@ def make_logo(size: int = 128) -> QPixmap:
     shield.lineTo(point(27.5, 57.0))
     shield.lineTo(point(27.5, 30.8))
     shield.closeSubpath()
-    painter.setBrush(QColor("#FFFFFF"))
+    painter.setBrush(QColor("#E8F9EE" if green else "#FFFFFF"))
     painter.drawPath(shield)
 
     bolt = QPainterPath()
@@ -353,12 +377,18 @@ def app_icon() -> QIcon:
 
 
 def connected_icon() -> QIcon:
-    """Connected-state icon: green shield (tray + header + notifications)."""
-    return _icon_from("schnellvpn_connected.png") or app_icon()
+    """Connected-state icon: green shield (tray + header + notifications).
+
+    Always returns a *green* icon, even in an older bundle that does not ship
+    the green PNG: the fallback recolours the drawn shield at runtime so the
+    tray never stays blue while connected.
+    """
+    return _icon_from("schnellvpn_connected.png") or _drawn_icon(green=True)
 
 
-def _drawn_icon() -> QIcon:
+def _drawn_icon(green: bool = False) -> QIcon:
     icon = QIcon()
     for size in (16, 24, 32, 48, 64, 128, 256):
-        icon.addPixmap(make_logo(size))
+        pixmap = make_logo(size, green=green)
+        icon.addPixmap(pixmap)
     return icon

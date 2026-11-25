@@ -1298,7 +1298,7 @@ class MainWindow(QMainWindow):
             return
         self._recovering = False
         self._failed_servers.clear()
-        if self.store.get_setting("smart_connect", True):
+        if self.store.get_setting("smart_connect", False):
             self._connect_smart_async()
         else:
             self._connect_async()
@@ -1631,7 +1631,7 @@ class MainWindow(QMainWindow):
         self._connect_async()
 
     def _recovery_server(self) -> Optional[VpnServer]:
-        if not self.store.get_setting("smart_connect", True):
+        if not self.store.get_setting("smart_connect", False):
             return self.current_server
         ranked = rank_servers(
             self.store.profile.servers,
