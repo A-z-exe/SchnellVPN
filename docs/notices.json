@@ -2,18 +2,35 @@
   "schema": 1,
   "notices": [
     {
+      "id": "update-to-1-6-2-2026",
+      "level": "warning",
+      "platforms": ["windows", "linux", "android"],
+      "max_version": "1.6.1",
+      "update": true,
+      "title": {
+        "fa": "به\u200cروزرسانی به نسخه ۱.۶.۲",
+        "en": "Update to version 1.6.2",
+        "de": "Update auf Version 1.6.2"
+      },
+      "message": {
+        "fa": "نسخه ۱.۶.۲ منتشر شد. لطفاً برنامه را به\u200cروزرسانی کنید تا از لوگوی جدید (سبز هنگام اتصال)، تست دقیق\u200cتر تأخیر و بهبود عملکرد سرورها بهره\u200cمند شوید. از قسمت «بررسی به\u200cروزرسانی» در تنظیمات یا دکمهٔ دانلود همین پیام استفاده کنید.",
+        "en": "Version 1.6.2 is available. Please update to enjoy the new two-state logo (green while connected), more accurate delay measurement and server improvements. Use Check for updates in Settings or the download button in this message.",
+        "de": "Version 1.6.2 ist verfügbar. Bitte aktualisiere, um das neue zweifarbige Logo (grün bei Verbindung), genauere Latenzmessung und Serververbesserungen zu erhalten. Nutze „Nach Updates suchen“ in den Einstellungen oder den Download-Button dieser Nachricht."
+      }
+    },
+    {
       "id": "win-self-update-fix-1.5.4",
       "level": "warning",
       "platforms": ["windows"],
       "max_version": "1.5.3",
       "update": true,
       "title": {
-        "fa": "به‌روزرسانی ویندوز ۱.۵.۴",
+        "fa": "به\u200cروزرسانی ویندوز ۱.۵.۴",
         "en": "Windows update 1.5.4",
         "de": "Windows-Update 1.5.4"
       },
       "message": {
-        "fa": "خرابی به‌روزرسانی خودکار ویندوز در نسخه ۱.۵.۴ برطرف شد. اگر پس از زدن «به‌روزرسانی» پنجره‌های cmd پشت‌سرهم باز شد یا خطای python312.dll دیدید، برنامه را ببندید و exe نسخه ۱.۵.۴ را از صفحه انتشار دانلود و جایگزین فایل فعلی کنید.",
+        "fa": "خرابی به\u200cروزرسانی خودکار ویندوز در نسخه ۱.۵.۴ برطرف شد. اگر پس از زدن «به\u200cروزرسانی» پنجره‌های cmd پشت\u200cسرهم باز شد یا خطای python312.dll دیدید،_program را ببندید و exe نسخه ۱.۵.۴ را از صفحه انتشار دانلود و جایگزین فایل فعلی کنید.",
         "en": "The Windows self-update failure is fixed in 1.5.4. If updating flashed console windows or showed a python312.dll error, close the app and replace the exe with the download from the 1.5.4 release page.",
         "de": "Der Fehler beim Selbst-Update unter Windows ist in 1.5.4 behoben. Falls beim Aktualisieren Konsolenfenster aufblitzten oder ein python312.dll-Fehler erschien, schließe die App und ersetze die exe durch den Download der Version 1.5.4."
       }
