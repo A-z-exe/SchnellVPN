@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (
@@ -320,17 +321,17 @@ def make_logo(size: int = 128) -> QPixmap:
     return pixmap
 
 
-def app_icon() -> QIcon:
-    """Prefer the real logo PNG; fall back to the drawn logo for source runs."""
+def _icon_from(name: str) -> Optional[QIcon]:
     import sys
 
     roots = [Path(__file__).resolve().parents[2]]
     bundle = getattr(sys, "_MEIPASS", None)
     if bundle:
         roots.insert(0, Path(bundle))
-    candidates = [root / "resources" / "schnellvpn.png" for root in roots]
-    candidates += [root / "windows" / "resources" / "schnellvpn.png" for root in roots]
-    candidates += [root / "docs" / "icon.png" for root in roots]
+    candidates = [root / "resources" / name for root in roots]
+    candidates += [root / "windows" / "resources" / name for root in roots]
+    if name == "schnellvpn.png":
+        candidates += [root / "docs" / "icon.png" for root in roots]
     for path in candidates:
         if path.is_file():
             pixmap = QPixmap(str(path))
@@ -343,6 +344,20 @@ def app_icon() -> QIcon:
                         )
                     )
                 return icon
+    return None
+
+
+def app_icon() -> QIcon:
+    """Default (disconnected) icon: blue shield."""
+    return _icon_from("schnellvpn.png") or _drawn_icon()
+
+
+def connected_icon() -> QIcon:
+    """Connected-state icon: green shield (tray + header + notifications)."""
+    return _icon_from("schnellvpn_connected.png") or app_icon()
+
+
+def _drawn_icon() -> QIcon:
     icon = QIcon()
     for size in (16, 24, 32, 48, 64, 128, 256):
         icon.addPixmap(make_logo(size))

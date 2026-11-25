@@ -62,6 +62,7 @@ from .theme import (
     SUCCESS,
     WARN,
     app_icon,
+    connected_icon,
     download_icon,
     gear_icon,
     stylesheet,
@@ -222,6 +223,7 @@ class MainWindow(QMainWindow):
         logo = QLabel()
         logo.setPixmap(app_icon().pixmap(46, 46))
         logo.setFixedSize(46, 46)
+        self.logo_label = logo
         row.addWidget(logo)
 
         titles = QVBoxLayout()
@@ -1547,7 +1549,7 @@ class MainWindow(QMainWindow):
                 self.tray.showMessage(
                     "SchnellVPN",
                     t(self.lang, "reconnecting"),
-                    QSystemTrayIcon.Warning,
+                    connected_icon(),
                     4000,
                 )
             self._start_recovery()
@@ -1815,6 +1817,14 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def _update_tray(self) -> None:
+        connected = self.state in (STATE_CONNECTED, STATE_RECONNECTING)
+        # Green shield while connected, blue shield otherwise — both in the
+        # tray and in the window title/header.
+        icon = connected_icon() if connected else app_icon()
+        self.tray.setIcon(icon)
+        self.setWindowIcon(icon)
+        if hasattr(self, "logo_label"):
+            self.logo_label.setPixmap(icon.pixmap(46, 46))
         if self.state == STATE_CONNECTED and self.current_server:
             self.tray.setToolTip(f"SchnellVPN \u00b7 {t(self.lang, 'connected_to', name=self.current_server.name)}")
             self.tray_connect_action.setText(t(self.lang, "disconnect"))
@@ -1861,7 +1871,9 @@ class MainWindow(QMainWindow):
                 self.tray.showMessage(
                     "SchnellVPN",
                     t(self.lang, "tray_hint"),
-                    QSystemTrayIcon.Information,
+                    connected_icon()
+                    if self.state == STATE_CONNECTED
+                    else app_icon(),
                     3000,
                 )
             return
