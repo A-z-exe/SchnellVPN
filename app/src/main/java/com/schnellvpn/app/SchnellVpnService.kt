@@ -316,7 +316,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
                 } else {
                     failures++
                     VpnStatus.setDataFlowing(false)
-                    if (failures >= 2) {
+                    if (failures >= 4) {
                         val smart = ProfileManager.loadSmartConnect(this@SchnellVpnService)
                         if (smart && tryFailover()) break
                         VpnStatus.setLastError(

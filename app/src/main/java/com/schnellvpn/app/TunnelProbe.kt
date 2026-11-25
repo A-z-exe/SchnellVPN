@@ -68,7 +68,7 @@ object TunnelProbe {
             val started = System.currentTimeMillis()
             try {
                 Socket(proxy).use { s ->
-                    s.connect(InetSocketAddress(host, port), minOf(left, 1500))
+                    s.connect(InetSocketAddress(host, port), minOf(left, 3000))
                     if (s.isConnected) return (System.currentTimeMillis() - started).coerceAtLeast(1L)
                 }
             } catch (_: Exception) {

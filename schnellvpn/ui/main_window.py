@@ -77,10 +77,12 @@ STATE_RECONNECTING = "reconnecting"
 LANG_NAMES = {"fa": "فارسی", "en": "English", "de": "Deutsch"}
 CHANNEL_URL = "https://t.me/SchnellVPN"
 
-# A single failed probe is usually a blip: one fast retry, then two failed
-# cycles before the tunnel is restarted. Always-on mode keeps retrying with a
-# capped backoff; the bounded mode gives up after the first three steps.
-MAX_MONITOR_FAILURES = 2
+# A single failed probe is usually a blip, and mobile/VPN links often stall a
+# single request. Tolerate several missed cycles before restarting the tunnel:
+# the monitor runs every 20s by default, so 4 misses is ~80s of trouble.
+# Always-on mode keeps retrying with a capped backoff; the bounded mode gives
+# up after the first three steps.
+MAX_MONITOR_FAILURES = 4
 RECONNECT_DELAYS = (2, 5, 10, 20, 30)
 
 
@@ -1517,8 +1519,11 @@ class MainWindow(QMainWindow):
         def check() -> tuple[bool, Optional[int]]:
             if not self.client.running:
                 return False, None
-            # 8s covers slow mobile links; a single miss no longer drops the tunnel.
-            return True, probe_with_latency(socks, 8000)
+            # Use a generous per-endpoint slice here: this is a "is the tunnel
+            # still alive" check, not a latency measurement. A short slice
+            # (used by the delay test) made slow-but-working servers look dead
+            # and caused repeated disconnects/reconnects.
+            return True, probe_with_latency(socks, 10000, slice_ms=4000)
 
         self._start_task(
             check,

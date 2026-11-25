@@ -127,23 +127,30 @@ def _http_get_through_socks(
         sock.close()
 
 
-def probe_with_latency(socks_port: int = 10808, timeout_ms: int = 3000) -> Optional[int]:
+def probe_with_latency(
+    socks_port: int = 10808,
+    timeout_ms: int = 3000,
+    slice_ms: Optional[int] = None,
+) -> Optional[int]:
     """Real request through the tunnel; total time never exceeds timeout_ms.
 
     Only a full HTTP exchange counts. A bare TCP/SOCKS connect is not proof of
     a working tunnel: a dead remote can still accept the dial and answer the
     SOCKS handshake while no data ever flows.
+
+    `slice_ms` caps the time spent on a single endpoint. The delay test uses a
+    short slice for a snappy number; the connection monitor passes a larger
+    one so a slow-but-working server is not mistaken for a dead tunnel.
     """
     deadline = time.monotonic() + timeout_ms / 1000
+    cap = (slice_ms if slice_ms is not None else PROBE_SLICE_MS) / 1000
 
     for url in HTTP_ENDPOINTS:
         left = deadline - time.monotonic()
         if left < 0.35:
             break
         try:
-            latency = _http_get_through_socks(
-                url, socks_port, min(left, PROBE_SLICE_MS / 1000)
-            )
+            latency = _http_get_through_socks(url, socks_port, min(left, cap))
             if latency is not None:
                 return latency
         except (OSError, ssl.SSLError, ValueError):
