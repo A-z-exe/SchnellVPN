@@ -1376,7 +1376,10 @@ fun LoginScreen(
             )
         }
         Spacer(Modifier.height(10.dp))
-        Text("نسخه 1.4.3", color = colors.textDim, fontSize = 10.sp)
+        Text(
+            "نسخه ${UpdateManager.currentVersion(context)}",
+            color = colors.textDim, fontSize = 10.sp
+        )
     }
     }
 }

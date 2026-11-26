@@ -460,6 +460,7 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
     }
 
     private fun buildNotification(text: String, ongoing: Boolean): android.app.Notification {
+        val lang = AppLanguage.fromCode(ProfileManager.loadLanguage(this))
         val pi = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK },
@@ -472,12 +473,16 @@ class SchnellVpnService : VpnService(), CoreCallbackHandler {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("SchnellVPN")
-            .setContentText(text)
+            .setContentText(translateText(text, lang))
             .setSmallIcon(R.drawable.ic_stat_schnell)
             .setLargeIcon(largeIcon)
             .setOngoing(ongoing)
             .setContentIntent(pi)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "قطع", disconnectPi)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                translateText("قطع", lang),
+                disconnectPi
+            )
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }

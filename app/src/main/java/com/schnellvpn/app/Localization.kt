@@ -289,8 +289,7 @@ private val TRANSLATIONS: Map<String, List<String>> = mapOf(
         "Bitte einen gültigen Link eingeben",
         "유효한 링크를 입력하세요",
         "有効なリンクを入力してください"
-    ),
-    "نسخه 1.4.3" to listOf("Version 1.4.3", "Version 1.4.3", "버전 1.4.3", "バージョン 1.4.3")
+    )
 )
 
 fun translateText(text: String, lang: AppLanguage): String {

@@ -7,6 +7,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -21,7 +22,10 @@ data class UpdateInfo(
     val apkUrl: String,
     val sha256: String?,
     val notes: String,
-    val size: Long = 0
+    val size: Long = 0,
+    /** Release asset with the combined `SHA256SUMS-Android.txt`, used when an asset has no digest. */
+    val sumsUrl: String? = null,
+    val apkName: String = ""
 )
 
 sealed class UpdateUiState {
@@ -41,6 +45,10 @@ object UpdateManager {
     private const val API_URL = "https://api.github.com/repos/A-z-exe/SchnellVPN/releases/latest"
     private const val APK_NAME = "SchnellVPN-update.apk"
     private const val HTTP_RANGE_NOT_SATISFIABLE = 416
+
+    /** Combined checksum list published next to the APKs (`sha256sum` output). */
+    private const val SUMS_NAME = "SHA256SUMS-Android.txt"
+    private const val MAX_SUMS_BYTES = 64 * 1024
 
     /**
      * Picks the release asset for this device. New releases ship one APK per
@@ -115,13 +123,23 @@ object UpdateManager {
                 .takeIf { it.isNotBlank() }
             val size = chosen.optLong("size", 0)
             if (apkUrl.isNullOrBlank()) return@withContext null
+            var sumsUrl: String? = null
+            for (i in 0 until assets.length()) {
+                val a = assets.optJSONObject(i) ?: continue
+                if (a.optString("name", "") == SUMS_NAME) {
+                    sumsUrl = a.optString("browser_download_url", "").takeIf { it.isNotBlank() }
+                    break
+                }
+            }
 
             UpdateInfo(
                 version = tag.removePrefix("v").removePrefix("V"),
                 apkUrl = apkUrl,
                 sha256 = sha,
                 notes = obj.optString("body", ""),
-                size = size
+                size = size,
+                sumsUrl = sumsUrl,
+                apkName = chosenName
             )
         } catch (e: Exception) {
             null
@@ -132,7 +150,8 @@ object UpdateManager {
      * Downloads the APK to a `.part` file and resumes it with an HTTP Range
      * request after a dropped connection, so a phone call or a flapping network
      * does not restart the whole download. The final file only appears after
-     * the checksum (when the release publishes one) matches.
+     * the SHA-256 from the release (asset digest, or the published
+     * `SHA256SUMS-Android.txt`) matches; without a hash nothing is installed.
      */
     suspend fun downloadApk(
         context: Context,
@@ -142,9 +161,10 @@ object UpdateManager {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
         val out = File(dir, APK_NAME)
         val part = File(dir, "$APK_NAME.part")
+        var expected = info.sha256?.takeIf { it.isNotBlank() }
         var attempt = 0
         while (attempt < 5) {
-            if (attempt > 0) Thread.sleep(2_000)
+            if (attempt > 0) delay(2_000)
             attempt++
             try {
                 if (info.size > 0 && part.isFile && part.length() > info.size) {
@@ -154,9 +174,12 @@ object UpdateManager {
                 } else {
                     fetchInto(part, info, onProgress)
                 }
-                if (!info.sha256.isNullOrBlank() &&
-                    !sha256(part).equals(info.sha256, ignoreCase = true)
-                ) {
+                if (expected == null) expected = expectedFromSums(info)
+                if (expected == null) {
+                    // No trustworthy hash yet: keep retrying instead of installing blindly.
+                    continue
+                }
+                if (!sha256(part).equals(expected, ignoreCase = true)) {
                     part.delete()
                     continue
                 }
@@ -244,6 +267,45 @@ object UpdateManager {
 
     private fun totalFromContentRange(header: String?): Long =
         header?.substringAfter('/', "")?.toLongOrNull() ?: 0L
+
+    /**
+     * Reads the expected hash for this APK from the release's
+     * `SHA256SUMS-Android.txt` (lines look like `<hash>  <file>`).
+     */
+    private fun expectedFromSums(info: UpdateInfo): String? {
+        val url = info.sumsUrl?.takeIf { it.isNotBlank() } ?: return null
+        return try {
+            val conn = openFollowing(url, 0)
+            try {
+                if (conn.responseCode != HttpURLConnection.HTTP_OK) return null
+                val text = conn.inputStream.bufferedReader().use { reader ->
+                    val sb = StringBuilder()
+                    val buf = CharArray(4096)
+                    while (sb.length < MAX_SUMS_BYTES) {
+                        val read = reader.read(buf)
+                        if (read <= 0) break
+                        sb.append(buf, 0, read)
+                    }
+                    sb.toString()
+                }
+                val target = info.apkName.substringAfterLast('/')
+                if (target.isBlank()) return null
+                text.lineSequence()
+                    .map { it.trim() }
+                    .firstOrNull { line ->
+                        val parts = line.split(Regex("\\s+"), limit = 2)
+                        parts.size == 2 && parts[1].trimStart('*').substringAfterLast('/') == target
+                    }
+                    ?.split(Regex("\\s+"), limit = 2)
+                    ?.firstOrNull()
+                    ?.takeIf { it.length == 64 }
+            } finally {
+                conn.disconnect()
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     private fun sha256(file: File): String {
         val md = MessageDigest.getInstance("SHA-256")

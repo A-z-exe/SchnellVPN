@@ -2,20 +2,20 @@
   "schema": 1,
   "notices": [
     {
-      "id": "update-to-1-6-4-2026",
+      "id": "update-to-1-6-5-2026",
       "level": "warning",
       "platforms": ["windows", "linux", "android"],
-      "max_version": "1.6.1",
+      "max_version": "1.6.4",
       "update": true,
       "title": {
-        "fa": "به\u200cروزرسانی به نسخه ۱.۶.۲",
-        "en": "Update to version 1.6.4",
-        "de": "Update auf Version 1.6.4"
+        "fa": "به\u200cروزرسانی به نسخه ۱.۶.۵",
+        "en": "Update to version 1.6.5",
+        "de": "Update auf Version 1.6.5"
       },
       "message": {
-        "fa": "نسخه ۱.۶.۲ منتشر شد. لطفاً برنامه را به\u200cروزرسانی کنید تا از لوگوی جدید (سبز هنگام اتصال)، تست دقیق\u200cتر تأخیر و بهبود عملکرد سرورها بهره\u200cمند شوید. از قسمت «بررسی به\u200cروزرسانی» در تنظیمات یا دکمهٔ دانلود همین پیام استفاده کنید.",
-        "en": "Version 1.6.4 is available. Please update to enjoy the new two-state logo (green while connected), more accurate delay measurement and server improvements. Use Check for updates in Settings or the download button in this message.",
-        "de": "Version 1.6.4 ist verfügbar. Bitte aktualisiere, um das neue zweifarbige Logo (grün bei Verbindung), genauere Latenzmessung und Serververbesserungen zu erhalten. Nutze „Nach Updates suchen“ in den Einstellungen oder den Download-Button dieser Nachricht."
+        "fa": "نسخه ۱.۶.۵ منتشر شد. این نسخه پیش از نصب، صحت فایل به\u200cروزرسانی را همیشه بررسی می\u200cکند، شماره\u200cی نسخه را درست نشان می\u200cدهد و سرورهایی که دستی اضافه کرده\u200cاید در به\u200cروزرسانی اشتراک پاک نمی\u200cشوند. از قسمت «بررسی به\u200cروزرسانی» در تنظیمات یا دکمهٔ دانلود همین پیام استفاده کنید.",
+        "en": "Version 1.6.5 is available. It always verifies the update file before installing, shows the real app version, and keeps servers you added by hand when a subscription refreshes. Use Check for updates in Settings or the download button in this message.",
+        "de": "Version 1.6.5 ist verfügbar. Sie prüft die Updatedatei vor der Installation immer, zeigt die echte App-Version an und behält manuell hinzugefügte Server beim Aktualisieren eines Abonnements. Nutze „Nach Updates suchen“ in den Einstellungen oder den Download-Button dieser Nachricht."
       }
     },
     {

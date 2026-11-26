@@ -6,14 +6,14 @@
 ![Windows](https://img.shields.io/badge/platform-Windows-blue)
 ![Linux](https://img.shields.io/badge/platform-Linux-yellow)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
-![Version](https://img.shields.io/badge/version-1.6.4-blue)
+![Version](https://img.shields.io/badge/version-1.6.5-blue)
 
 **SchnellVPN** is a VPN client built on **Xray-core**, shipped for three platforms that share the
 same engine, link formats and honesty checks (no "connected" before data really flows):
 
 | | 🤖 **Android** (stable) | 🪟 **Windows** | 🐧 **Linux** |
 | --- | --- | --- | --- |
-| Version | **1.6.4** | **1.6.4** | **1.6.4** |
+| Version | **1.6.5** | **1.6.5** | **1.6.5** |
 | Built with | Kotlin + Jetpack Compose | Python + PySide6 | Python + PySide6 |
 | Engine | AndroidLibXrayLite | Xray-core 26.x (`xray.exe`, bundled) | Xray-core (bundled) |
 | Tunnel | TUN (VpnService) + hev-socks5-tunnel | SOCKS/HTTP + WinINET system proxy | SOCKS/HTTP + GNOME (GSettings) proxy |
@@ -157,7 +157,9 @@ cd SchnellVPN
 
 ## 📄 مجوز
 
-کتابخانه‌ی `AndroidLibXrayLite` تحت LGPL-3.0 و `hev-socks5-tunnel` تحت MIT منتشر شده؛ جزئیات در ریپوهای اصلی‌شان.
+خودِ SchnellVPN تحت مجوز **MIT** منتشر شده است؛ متن کامل در فایل [`LICENSE`](LICENSE).
+
+کتابخانه‌ی `AndroidLibXrayLite` تحت LGPL-3.0، `hev-socks5-tunnel` تحت MIT و Xray-core تحت MPL-2.0 منتشر شده‌اند؛ جزئیات در ریپوهای اصلی‌شان.
 
 ## ⚠️ هشدار مسئولیت
 

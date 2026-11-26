@@ -94,11 +94,14 @@ class ServerListOpsTest {
     }
 
     @Test
-    fun legacyServersAreReplacedOnlyWhenSomeDownloadSucceeds() {
+    fun legacyServersSurviveARefreshButDuplicatesAreRemoved() {
         val legacy = listOf(srv(1, "old", source = ""))
 
         val ok = ServerListOps.mergeRefresh(legacy, mapOf(urlA to listOf(srv(1, "new", source = urlA))))
-        assertEquals(listOf("new"), ok.map { it.link })
+        assertEquals(listOf("new", "old"), ok.map { it.link })
+
+        val duplicate = ServerListOps.mergeRefresh(legacy, mapOf(urlA to listOf(srv(1, "old", source = urlA))))
+        assertEquals(listOf("old"), duplicate.map { it.link })
 
         val allFailed = ServerListOps.mergeRefresh(legacy, mapOf<String, List<VpnServer>?>(urlA to null))
         assertEquals(listOf("old"), allFailed.map { it.link })

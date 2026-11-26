@@ -27,17 +27,15 @@ object ServerListOps {
      *  - freshly downloaded servers replace the old servers of the same subscription
      *  - a failed subscription keeps its old servers (a network hiccup never wipes the list)
      *  - manually added servers (QR / single link) are always kept
-     *  - servers saved by older versions (source == "") came from a subscription: they are replaced
-     *    as soon as at least one download succeeds
+     *  - servers saved by older versions (source == "") are kept too: their origin is
+     *    unknown, so dropping them could delete servers the user added by hand
      *  - duplicates (same link) are removed, fresh entries win
      */
     fun mergeRefresh(existing: List<VpnServer>, fetched: Map<String, List<VpnServer>?>): List<VpnServer> {
-        val anySuccess = fetched.values.any { it != null }
-
         val kept = existing.filter { s ->
             when {
                 s.source == MANUAL -> true
-                s.source.isEmpty() -> !anySuccess
+                s.source.isEmpty() -> true
                 fetched.containsKey(s.source) -> fetched[s.source] == null
                 else -> true // belongs to a subscription that is no longer saved
             }
