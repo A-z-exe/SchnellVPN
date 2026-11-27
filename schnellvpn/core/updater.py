@@ -306,6 +306,8 @@ def _helper_script(
     lock: Path,
     log_path: Path,
     version: str,
+    old_pid: int = 0,
+    old_parent_pid: int = 0,
 ) -> str:
     runtime_dir = r"%LOCALAPPDATA%\SchnellVPN\runtime"
     return (
@@ -319,6 +321,8 @@ def _helper_script(
         f"$Version = {_ps(version)}\n"
         f"$Leaf = {_ps(target.name)}\n"
         f"$Runtime = {_ps(runtime_dir)}\n"
+        f"$OldPid = {int(old_pid)}\n"
+        f"$OldParent = {int(old_parent_pid)}\n"
         "$Runtime = [Environment]::ExpandEnvironmentStrings($Runtime)\n"
         "\n"
         "function Log([string]$line) {\n"
@@ -347,6 +351,19 @@ def _helper_script(
         "Log ('installing ' + $Version)\n"
         "if (Test-Path $Marker) { Remove-Item $Marker -Force }\n"
         "if (Test-Path $Backup) { Remove-Item $Backup -Force }\n"
+        "\n"
+        "# Wait for the old build to fully exit. The exe can be renamed while it\n"
+        "# is still running, but the fresh build would then see the single-instance\n"
+        "# mutex still held, treat itself as a second launch and quit without ever\n"
+        "# writing its boot marker - which looks like 'downloaded but never updated'.\n"
+        "for ($i = 0; $i -lt 180; $i++) {\n"
+        "  $alive = $false\n"
+        "  if ($OldPid -gt 4)    { if (Get-Process -Id $OldPid -ErrorAction SilentlyContinue)    { $alive = $true } }\n"
+        "  if ($OldParent -gt 4) { if (Get-Process -Id $OldParent -ErrorAction SilentlyContinue) { $alive = $true } }\n"
+        "  if (-not $alive) { break }\n"
+        "  Start-Sleep -Milliseconds 500\n"
+        "}\n"
+        "Log 'old build exited; replacing'\n"
         "\n"
         "$swapped = $false\n"
         "for ($i = 0; $i -lt 180; $i++) {\n"
@@ -425,6 +442,12 @@ def install(
     if not update_path.is_file():
         raise RuntimeError("downloaded update is missing")
 
+    # The helper must wait for this process (and the PyInstaller bootloader that
+    # spawned it) to exit before launching the new build; otherwise the new build
+    # sees the single-instance mutex still held and quits as a "second instance".
+    old_pid = os.getpid()
+    old_parent_pid = os.getppid() if sys.platform == "win32" else 0
+
     backup = target.with_name(target.name + ".old")
     marker = boot_marker(version)
     lock = Path(tempfile.gettempdir()) / "schnellvpn-update.lock"
@@ -434,7 +457,17 @@ def install(
     log_path.parent.mkdir(parents=True, exist_ok=True)
     script = Path(tempfile.gettempdir()) / f"schnellvpn-update-{os.getpid()}.ps1"
     script.write_text(
-        _helper_script(target, update_path, backup, marker, lock, log_path, version),
+        _helper_script(
+            target,
+            update_path,
+            backup,
+            marker,
+            lock,
+            log_path,
+            version,
+            old_pid,
+            old_parent_pid,
+        ),
         encoding="ascii",
     )
     flags = 0

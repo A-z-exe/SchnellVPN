@@ -11,7 +11,7 @@ import importlib.abc
 import importlib.util
 import sys
 
-__version__ = "1.6.5"
+__version__ = "1.6.6"
 
 
 class _Qt5Loader(importlib.abc.Loader):

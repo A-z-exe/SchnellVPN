@@ -65,12 +65,23 @@ object ServerListOps {
         false
     }
 
-    /** Lowest ping first; local (127.0.0.1) always first; unreachable (null) last; equal pings keep order. */
+    /**
+     * سرورهایی که در لینکشان `info.` دارند (دامنه، SNI یا رمارک) همیشه بالای
+     * لیست می‌مانند — همان رفتار دسکتاپ.
+     */
+    fun isInfoPinned(link: String): Boolean = link.lowercase().contains("info.")
+
+    /**
+     * `info.` ها اول، بعد لوکال (127.0.0.1)، بعد کمترین پینگ، و بدون پاسخ (null) آخر.
+     * پینگ‌های برابر ترتیب قبلی را نگه می‌دارند.
+     */
     fun sortByPing(list: List<VpnServer>): List<VpnServer> {
+        val pinned = list.map { isInfoPinned(it.link) }
         val localFlags = list.map { isLocalLink(it.link) }
         return list.indices
             .sortedWith(
-                compareBy<Int> { !localFlags[it] && list[it].pingMs == null }
+                compareBy<Int> { !pinned[it] }
+                    .thenBy { !localFlags[it] && list[it].pingMs == null }
                     .thenBy { if (localFlags[it]) 0 else list[it].pingMs ?: Int.MAX_VALUE }
             )
             .map { list[it] }

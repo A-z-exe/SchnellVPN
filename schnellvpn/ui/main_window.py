@@ -42,7 +42,7 @@ from ..core.client import TunnelClient
 from ..core.delay import measure_delays
 from ..core.links import endpoint_of
 from ..core.models import VpnServer
-from ..core.netprobe import ping_all, probe_with_latency
+from ..core.netprobe import ping_all, probe_https_proxy, probe_with_latency
 from ..core.runner import XrayProcess, find_binary
 from ..core.selection import rank_servers
 from ..core.store import Store
@@ -123,6 +123,8 @@ class MainWindow(QMainWindow):
         self._busy = False
         self._monitoring = False
         self._monitor_failures = 0
+        self._flow_warning = False
+        self._stats_warned = False
         self._recovering = False
         self._reconnect_attempt = 0
         self._failed_servers: set[int] = set()
@@ -163,6 +165,7 @@ class MainWindow(QMainWindow):
 
         self._populate_profiles()
         self.refresh_table()
+        self._sort_servers()
         self.apply_language(self.lang, persist=False)
         self._log(f"data dir: {self.data_dir}")
         self._update_engine_chip()
@@ -1029,6 +1032,9 @@ class MainWindow(QMainWindow):
         self._speed_pending = False
         now = time.monotonic()
         if self.state != STATE_CONNECTED or current is None:
+            if current is None and self.state == STATE_CONNECTED and not self._stats_warned:
+                self._stats_warned = True
+                self._log("stats API unreachable; speed chart has no data")
             self._speed_prev = None
             self._speed_prev_at = None
             return
@@ -1069,6 +1075,7 @@ class MainWindow(QMainWindow):
         self._speed_prev_at = None
         self._speed_pending = False
         self._last_rates = None
+        self._stats_warned = False
         self._timers["speed"].start(1000)
 
     # ------------------------------------------------------------------ updates
@@ -1408,6 +1415,7 @@ class MainWindow(QMainWindow):
         self._recovering = False
         self._reconnect_attempt = 0
         self._monitor_failures = 0
+        self._flow_warning = False
         self._failed_servers.clear()
         self.delays[server.id] = latency
         self._log(f"connected: {server.name} via {server.label}, {latency} ms")
@@ -1515,10 +1523,17 @@ class MainWindow(QMainWindow):
             return
         self._monitoring = True
         socks = int(self.store.get_setting("socks_port", 10808))
+        http = int(self.store.get_setting("http_port", 10809))
 
         def check() -> tuple[bool, Optional[int]]:
             if not self.client.running:
                 return False, None
+            # The browser reaches the tunnel through the HTTP inbound and real
+            # pages are https. Probing only SOCKS with plain http:// reported a
+            # healthy tunnel while every browser request timed out.
+            latency = probe_https_proxy(http, 8000)
+            if latency is not None:
+                return True, latency
             # Use a generous per-endpoint slice here: this is a "is the tunnel
             # still alive" check, not a latency measurement. A short slice
             # (used by the delay test) made slow-but-working servers look dead
@@ -1547,6 +1562,9 @@ class MainWindow(QMainWindow):
                 self._monitor_failures = MAX_MONITOR_FAILURES
             if self._monitor_failures < MAX_MONITOR_FAILURES:
                 self._log("tunnel probe failed; will retry")
+                if not self._flow_warning:
+                    self._flow_warning = True
+                    self._set_hint(t(self.lang, "data_flow_off"))
                 return
             self._log("tunnel stopped passing data; reconnecting")
             self._set_hint(t(self.lang, "reconnecting"))
@@ -1560,6 +1578,9 @@ class MainWindow(QMainWindow):
             self._start_recovery()
             return
         self._monitor_failures = 0
+        if self._flow_warning:
+            self._flow_warning = False
+            self._set_hint(t(self.lang, "data_flow_ok"))
         if self.current_server:
             self.delays[self.current_server.id] = int(latency)
         self._refresh_metrics()

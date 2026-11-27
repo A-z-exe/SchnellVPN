@@ -2,20 +2,20 @@
   "schema": 1,
   "notices": [
     {
-      "id": "update-to-1-6-5-2026",
+      "id": "update-to-1-6-6-2026",
       "level": "warning",
       "platforms": ["windows", "linux", "android"],
-      "max_version": "1.6.4",
+      "max_version": "1.6.5",
       "update": true,
       "title": {
-        "fa": "به\u200cروزرسانی به نسخه ۱.۶.۵",
-        "en": "Update to version 1.6.5",
-        "de": "Update auf Version 1.6.5"
+        "fa": "به\u200cروزرسانی به نسخه ۱.۶.۶",
+        "en": "Update to version 1.6.6",
+        "de": "Update auf Version 1.6.6"
       },
       "message": {
-        "fa": "نسخه ۱.۶.۵ منتشر شد. این نسخه پیش از نصب، صحت فایل به\u200cروزرسانی را همیشه بررسی می\u200cکند، شماره\u200cی نسخه را درست نشان می\u200cدهد و سرورهایی که دستی اضافه کرده\u200cاید در به\u200cروزرسانی اشتراک پاک نمی\u200cشوند. از قسمت «بررسی به\u200cروزرسانی» در تنظیمات یا دکمهٔ دانلود همین پیام استفاده کنید.",
-        "en": "Version 1.6.5 is available. It always verifies the update file before installing, shows the real app version, and keeps servers you added by hand when a subscription refreshes. Use Check for updates in Settings or the download button in this message.",
-        "de": "Version 1.6.5 ist verfügbar. Sie prüft die Updatedatei vor der Installation immer, zeigt die echte App-Version an und behält manuell hinzugefügte Server beim Aktualisieren eines Abonnements. Nutze „Nach Updates suchen“ in den Einstellungen oder den Download-Button dieser Nachricht."
+        "fa": "نسخه ۱.۶.۶ مشکل «متصل است ولی هیچ سایتی باز نمی\u200cشود» در ویندوز را برطرف می\u200cکند: هستهٔ قدیمی که پس از به\u200cروزرسانی زنده می\u200cماند بسته می\u200cشود، آزاد بودن پورت\u200cها بررسی می\u200cشود و «عبور داده» فقط با یک اتصال HTTPS واقعی تأیید می\u200cشود. نمودار سرعت هم دوباره کار می\u200cکند. از «بررسی به\u200cروزرسانی» در تنظیمات یا دکمهٔ دانلود همین پیام استفاده کنید.",
+        "en": "Version 1.6.6 fixes the Windows \"connected but no site loads\" bug: a leftover core from a previous run is closed, local ports are verified before connecting, and data flow is only confirmed by a real HTTPS request. The speed chart works again. Use Check for updates in Settings or the download button in this message.",
+        "de": "Version 1.6.6 behebt unter Windows den Fehler „verbunden, aber keine Seite lädt“: Ein übrig gebliebener Kern einer früheren Sitzung wird beendet, die lokalen Ports werden vor dem Verbinden geprüft und der Datenfluss wird nur durch eine echte HTTPS-Anfrage bestätigt. Die Geschwindigkeitsanzeige funktioniert wieder. Nutze „Nach Updates suchen“ in den Einstellungen oder den Download-Button dieser Nachricht."
       }
     },
     {

@@ -39,6 +39,19 @@ class ServerListOpsTest {
     }
 
     @Test
+    fun infoServersStayPinnedAboveEverythingElse() {
+        val info = "vless://11111111-2222-3333-4444-555555555555@info.example.com:443?type=tcp&security=tls#info-srv"
+        val fast = "vless://11111111-2222-3333-4444-555555555555@fast.example.com:443?type=tcp&security=tls#fast"
+        val dead = "vless://11111111-2222-3333-4444-555555555555@dead.example.com:443?type=tcp&security=tls#dead"
+        val sorted = ServerListOps.sortByPing(
+            listOf(srv(1, "fast", 30), srv(2, info, 900), srv(3, "dead", null))
+        )
+        assertEquals(listOf(info, "fast", "dead"), sorted.map { it.link })
+        assertTrue(ServerListOps.isInfoPinned(info))
+        assertFalse(ServerListOps.isInfoPinned("fast"))
+    }
+
+    @Test
     fun applyPingsSortsRenumbersAndKeepsSelectionByLink() {
         val numbered = listOf(srv(1, "slow"), srv(2, "fast"), srv(3, "dead"), srv(4, "mid"))
         val pings: Map<Int, Int?> = mapOf(1 to 400, 2 to 30, 3 to null, 4 to 90)

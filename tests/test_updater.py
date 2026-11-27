@@ -172,6 +172,12 @@ def test_install_helper_is_hidden_and_kills_only_its_own_tree(tmp_path, monkeypa
     assert "taskkill /F /IM" not in text
     assert r"%LOCALAPPDATA%\SchnellVPN\runtime" in text
     assert "ping" not in text
+    # The helper must wait for the old build (and its PyInstaller bootloader) to
+    # exit before launching the new one, or the new build bails on the
+    # single-instance mutex and rolls back.
+    assert "$OldPid" in text
+    assert "Get-Process -Id $OldPid" in text
+    assert "old build exited" in text
     if _updater.sys.platform == "win32":
         assert launched["flags"] & _updater.subprocess.CREATE_NO_WINDOW
 

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 
 from . import __version__
 from .core.client import TunnelClient
-from .core.runner import app_data_dir
+from .core.runner import app_data_dir, kill_stale_xray
 from .core.store import Store
 from .ui.main_window import MainWindow
 from .ui.theme import app_icon, stylesheet
@@ -140,6 +140,15 @@ def main() -> int:
         _notify_running()
         return 0
 
+    # A previous run killed by the update helper can leave xray.exe holding the
+    # local ports; the next core then cannot bind and the app talks to the old
+    # tunnel. Clear those before restoring the proxy snapshot.
+    try:
+        killed = kill_stale_xray(data_dir=data_dir)
+        if killed:
+            print(f"SchnellVPN: stopped {killed} leftover xray process(es)")
+    except Exception:  # noqa: BLE001 - never block startup on cleanup
+        pass
     TunnelClient.restore_stale_proxy()
 
     store = Store(data_dir=data_dir)

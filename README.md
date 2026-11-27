@@ -6,14 +6,14 @@
 ![Windows](https://img.shields.io/badge/platform-Windows-blue)
 ![Linux](https://img.shields.io/badge/platform-Linux-yellow)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF)
-![Version](https://img.shields.io/badge/version-1.6.5-blue)
+![Version](https://img.shields.io/badge/version-1.6.6-blue)
 
 **SchnellVPN** is a VPN client built on **Xray-core**, shipped for three platforms that share the
 same engine, link formats and honesty checks (no "connected" before data really flows):
 
 | | 🤖 **Android** (stable) | 🪟 **Windows** | 🐧 **Linux** |
 | --- | --- | --- | --- |
-| Version | **1.6.5** | **1.6.5** | **1.6.5** |
+| Version | **1.6.6** | **1.6.6** | **1.6.6** |
 | Built with | Kotlin + Jetpack Compose | Python + PySide6 | Python + PySide6 |
 | Engine | AndroidLibXrayLite | Xray-core 26.x (`xray.exe`, bundled) | Xray-core (bundled) |
 | Tunnel | TUN (VpnService) + hev-socks5-tunnel | SOCKS/HTTP + WinINET system proxy | SOCKS/HTTP + GNOME (GSettings) proxy |

@@ -205,7 +205,7 @@ class SystemProxy:
                     "override": override,
                 }
             )
-            return True
+            return self.applied()
         host = "127.0.0.1"
         return _write(
             {
@@ -218,6 +218,24 @@ class SystemProxy:
                 "socks_port": str(max(1, self.port - 1)),
                 "ignore": LINUX_IGNORE_HOSTS,
             }
+        ) and self.applied()
+
+    def applied(self) -> bool:
+        """Read the OS settings back: is the system proxy on and pointing at us?
+
+        Writing the registry is not proof that the proxy is on (another app can
+        win the race, a policy key can override it). The UI must not claim the
+        browser is routed through the tunnel until this is true.
+        """
+        snapshot = _read()
+        if not snapshot:
+            return False
+        if _platform() == "win32":
+            server = str(snapshot.get("server") or "").strip().lower()
+            return bool(snapshot.get("enable")) and server == f"127.0.0.1:{self.port}"
+        return (
+            snapshot.get("mode", "").strip("'") == "manual"
+            and snapshot.get("http_port", "").strip() == str(self.port)
         )
 
     def disable(self) -> None:

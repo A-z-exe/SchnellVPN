@@ -48,7 +48,8 @@ object ProfileOps {
         val seen = HashSet<String>()
         val unique = profile.servers.filter { seen.add(ServerListOps.linkKey(it)) }
         val selectedLink = profile.servers.find { it.id == profile.selectedServerId }?.link
-        val (numbered, selected) = ServerListOps.renumber(unique, selectedLink)
+        // `info.` servers always stay pinned at the top, matching the desktop.
+        val (numbered, selected) = ServerListOps.renumber(ServerListOps.sortByPing(unique), selectedLink)
         return profile.copy(servers = numbered, selectedServerId = selected)
     }
 }

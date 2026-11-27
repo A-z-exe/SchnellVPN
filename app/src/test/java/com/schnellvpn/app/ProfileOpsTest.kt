@@ -77,4 +77,16 @@ class ProfileOpsTest {
         assertEquals(2, out.selectedServerId)
         assertEquals("b", out.servers[1].link)
     }
+
+    @Test
+    fun tidyPinsInfoServersToTheTop() {
+        val info = "vless://11111111-2222-3333-4444-555555555555@info.example.com:443?type=tcp&security=tls#info"
+        val p = profile(
+            1, listOf(urlA),
+            listOf(srv(1, "normal", urlA), srv(2, info, urlA), srv(3, "other", urlA))
+        )
+        val out = ProfileOps.tidy(p)
+        assertEquals(listOf(info, "normal", "other"), out.servers.map { it.link })
+        assertEquals(listOf(1, 2, 3), out.servers.map { it.id })
+    }
 }

@@ -32,6 +32,12 @@ PROXY_ENDPOINTS = (
     "http://cp.cloudflare.com/generate_204",
     "http://neverssl.com/",
 )
+# Real https destinations for the strict check. The first host is a cheap,
+# widely reachable endpoint; the second is what people actually open.
+HTTPS_ENDPOINTS = (
+    "www.gstatic.com",
+    "www.youtube.com",
+)
 # A real HTTP round trip is slower than a bare ping; keep the ceiling honest
 # but low enough that a sluggish endpoint cannot inflate every server's score.
 MAX_PING_MS = 3000
@@ -46,6 +52,34 @@ def _recv_exact(sock: socket.socket, count: int) -> bytes:
             raise OSError("connection closed")
         chunks.extend(chunk)
     return bytes(chunks)
+
+
+def _read_head(sock: socket.socket, limit: int = 4096) -> bytes:
+    """Read a full HTTP response head, including the blank line that ends it.
+
+    A CONNECT tunnel hands the socket to TLS right after that blank line; if the
+    trailing CRLF is left in the buffer, the TLS handshake reads it as a record
+    header and every https check fails with "wrong version number".
+    """
+    head = bytearray()
+    while not head.endswith(b"\r\n\r\n"):
+        if len(head) >= limit:
+            break
+        chunk = sock.recv(1)
+        if not chunk:
+            break
+        head.extend(chunk)
+    return bytes(head)
+
+
+def _status_code(head: bytes) -> Optional[int]:
+    fields = head.split(b"\r\n", 1)[0].split()
+    if len(fields) < 2 or not fields[0].startswith(b"HTTP/"):
+        return None
+    try:
+        return int(fields[1])
+    except ValueError:
+        return None
 
 
 def socks5_connect(
@@ -110,17 +144,8 @@ def _http_get_through_socks(
             "User-Agent: SchnellVPN-Windows\r\nConnection: close\r\n\r\n"
         )
         sock.sendall(request.encode("ascii"))
-        status_line = b""
-        while b"\r\n" not in status_line and len(status_line) < 256:
-            chunk = sock.recv(1)
-            if not chunk:
-                break
-            status_line += chunk
-        fields = status_line.split()
-        if len(fields) < 2 or not fields[0].startswith(b"HTTP/"):
-            return None
-        code = int(fields[1])
-        if 200 <= code < 400:
+        code = _status_code(_read_head(sock))
+        if code is not None and 200 <= code < 400:
             return max(1, int((time.monotonic() - started) * 1000))
         return None
     finally:
@@ -182,17 +207,8 @@ def _http_get_via_proxy(url: str, proxy_port: int, timeout: float) -> Optional[i
             "User-Agent: SchnellVPN-Windows\r\nConnection: close\r\n\r\n"
         )
         sock.sendall(request.encode("ascii"))
-        status_line = b""
-        while b"\r\n" not in status_line and len(status_line) < 256:
-            chunk = sock.recv(1)
-            if not chunk:
-                break
-            status_line += chunk
-        fields = status_line.split()
-        if len(fields) < 2 or not fields[0].startswith(b"HTTP/"):
-            return None
-        code = int(fields[1])
-        if 200 <= code < 400:
+        code = _status_code(_read_head(sock))
+        if code is not None and 200 <= code < 400:
             return max(1, int((time.monotonic() - started) * 1000))
         return None
 
@@ -210,16 +226,8 @@ def _https_via_proxy(
                 f"Host: {host}:{port}\r\n\r\n"
             ).encode("ascii")
         )
-        status_line = b""
-        while b"\r\n" not in status_line and len(status_line) < 256:
-            chunk = sock.recv(1)
-            if not chunk:
-                break
-            status_line += chunk
-        fields = status_line.split()
-        if len(fields) < 2 or not fields[0].startswith(b"HTTP/"):
-            return None
-        if not 200 <= int(fields[1]) < 300:
+        code = _status_code(_read_head(sock))
+        if code is None or not 200 <= code < 300:
             return None
         context = ssl.create_default_context()
         with context.wrap_socket(sock, server_hostname=host) as tls:
@@ -245,6 +253,28 @@ def probe_http_proxy(proxy_port: int = 10809, timeout_ms: int = 8000) -> Optiona
         except (OSError, ValueError):
             continue
     for host in ("cp.cloudflare.com", "www.gstatic.com"):
+        left = deadline - time.monotonic()
+        if left < 0.5:
+            break
+        try:
+            latency = _https_via_proxy(host, 443, proxy_port, min(left, 4.0))
+            if latency is not None:
+                return latency
+        except (OSError, ssl.SSLError, ValueError):
+            continue
+    return None
+
+
+def probe_https_proxy(proxy_port: int = 10809, timeout_ms: int = 6000) -> Optional[int]:
+    """CONNECT + a real TLS handshake, the path every https page takes.
+
+    A tunnel can carry plain http:// traffic while every https:// page hangs
+    (broken remote egress, a stale core on the local ports, DPI on the server).
+    The app must not call that "data verified", so this check runs separately
+    from the plain-HTTP probe.
+    """
+    deadline = time.monotonic() + timeout_ms / 1000
+    for host in HTTPS_ENDPOINTS:
         left = deadline - time.monotonic()
         if left < 0.5:
             break

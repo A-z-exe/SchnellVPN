@@ -11,6 +11,7 @@ from .netprobe import (
     free_port,
     internet_available,
     probe_http_proxy,
+    probe_https_proxy,
     probe_with_latency,
 )
 from .runner import XrayError, XrayProcess
@@ -61,7 +62,7 @@ class TunnelClient:
         try:
             self.runner.start(
                 config,
-                wait_ports=[socks_port, http_port],
+                wait_ports=[socks_port, http_port, api_port],
                 timeout=12,
             )
         except XrayError as exc:
@@ -73,14 +74,27 @@ class TunnelClient:
             self.runner.stop()
             raise TunnelError("probe_failed", detail)
 
-        if use_system_proxy and probe_http_proxy(http_port) is None:
+        if probe_http_proxy(http_port) is None:
             self.runner.stop()
             raise TunnelError("proxy_probe_failed")
 
+        # Plain http:// can pass while every https:// page hangs (a stale core
+        # on the local ports, blocked remote egress, DPI). Verify the path a
+        # browser actually uses before telling the user the tunnel works.
+        if probe_https_proxy(http_port) is None:
+            detail = self.runner.logs(3000).strip()
+            self.runner.stop()
+            raise TunnelError("https_probe_failed", detail)
+
         self.stats_port = api_port
         self.proxy.port = http_port
-        if use_system_proxy:
-            self.proxy.enable()
+        if use_system_proxy and not self.proxy.enable():
+            # The tunnel works, but Windows traffic still bypasses it, so the
+            # user's browser would keep failing while the UI says connected.
+            self.proxy.disable()
+            self.runner.stop()
+            self.stats_port = None
+            raise TunnelError("system_proxy_failed")
         self.connected = True
         return latency
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import socket
 import threading
 
-from schnellvpn.core.netprobe import probe_http_proxy
+from schnellvpn.core.netprobe import _read_head, probe_http_proxy, probe_https_proxy
 
 
 class FakeProxy:
@@ -66,3 +66,23 @@ def test_connect_is_tried_when_plain_http_fails():
         # can complete and the probe must report failure instead of a false pass.
         assert probe_http_proxy(proxy.port, timeout_ms=3000) is None
     assert any(line.startswith("CONNECT ") for line in proxy.seen)
+
+
+def test_https_probe_rejects_a_port_80_only_tunnel():
+    # The proxy answers CONNECT 200 (like a core that only forwards plain
+    # http) but never completes TLS; the strict check must not pass.
+    with FakeProxy(connections=8) as proxy:
+        assert probe_https_proxy(proxy.port, timeout_ms=3000) is None
+    assert any(line.startswith("CONNECT ") for line in proxy.seen)
+
+
+def test_read_head_consumes_the_blank_line_before_tls():
+    client, server = socket.socketpair()
+    try:
+        server.sendall(b"HTTP/1.1 200 Connection established\r\n\r\nPAYLOAD")
+        assert _read_head(client) == b"HTTP/1.1 200 Connection established\r\n\r\n"
+        # Anything after the blank line belongs to the tunnelled protocol.
+        assert client.recv(7) == b"PAYLOAD"
+    finally:
+        client.close()
+        server.close()
