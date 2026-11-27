@@ -85,7 +85,7 @@ def test_ping_header_sorts_lowest_first(tmp_path, qt_app):
     )
     window.pings = {1: 300, 2: 40, 3: 120}
     window.refresh_table()
-    header = window.table.horizontalHeader()
+    header = window.tree.header()
     try:
         header.sectionClicked.emit(3)
         assert [s.id for s in window.store.profile.servers] == [2, 3, 1]

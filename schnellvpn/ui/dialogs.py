@@ -114,6 +114,63 @@ class ImportDialog(BaseDialog):
         return self.editor.toPlainText()
 
 
+class EditProfileDialog(BaseDialog):
+    """Create or edit a profile: its display name and its subscription URL."""
+
+    def __init__(
+        self,
+        lang: str,
+        name: str = "",
+        url: str = "",
+        editing: bool = False,
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(lang, parent)
+        self.setWindowTitle(self.tr_("edit_profile" if editing else "new_profile"))
+        self.setMinimumWidth(480)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 16)
+        layout.setSpacing(10)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        self.name_edit = QLineEdit(name)
+        self.name_edit.setPlaceholderText(self.tr_("profile_name"))
+        self.url_edit = QPlainTextEdit(url)
+        self.url_edit.setLayoutDirection(Qt.LeftToRight)
+        self.url_edit.setMinimumHeight(70)
+        self.url_edit.setPlaceholderText(self.tr_("subscription_url_hint"))
+        form.addRow(self.tr_("profile_name"), self.name_edit)
+        form.addRow(self.tr_("subscription_url"), self.url_edit)
+        layout.addLayout(form)
+
+        hint = QLabel(self.tr_("profile_url_hint"))
+        hint.setObjectName("hint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        self.error = QLabel("")
+        self.error.setStyleSheet("color: #F87171; font-size: 11px;")
+        self.error.setWordWrap(True)
+        layout.addWidget(self.error)
+        layout.addWidget(_buttons(self, lang))
+
+    def accept(self) -> None:
+        name = self.name_edit.text().strip()
+        url = self.url_edit.toPlainText().strip()
+        if not name:
+            self.error.setText(self.tr_("profile_name"))
+            return
+        if url and not url.lower().startswith(("http://", "https://")):
+            self.error.setText(self.tr_("invalid_subscription_url"))
+            return
+        super().accept()
+
+    def values(self) -> tuple[str, str]:
+        return self.name_edit.text().strip(), self.url_edit.toPlainText().strip()
+
+
 class EditServerDialog(BaseDialog):
     def __init__(self, lang: str, server: VpnServer, parent: Optional[QWidget] = None):
         super().__init__(lang, parent)

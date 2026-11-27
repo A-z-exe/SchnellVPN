@@ -93,12 +93,69 @@ class Store:
         self.save()
         return profile
 
+    def add_subscription_profile(self, url: str, servers: list[VpnServer]) -> Profile:
+        """One subscription URL owns exactly one profile.
+
+        Mirrors the Android client: importing a subscription creates a fresh
+        profile, stamps every server with its ``source`` URL and numbers the
+        servers 1..n so refresh can replace only this profile's servers.
+        """
+        # The first subscription reuses the empty default profile (id 1), just
+        # like Android; later ones each create their own profile.
+        current = self.profile
+        if current.servers or current.subscription_urls:
+            new_id = max((p.id for p in self.profiles), default=0) + 1
+            current = Profile(new_id, f"Profile {new_id}")
+            self.profiles.append(current)
+            self.current_profile_id = new_id
+        profile = current
+        profile.subscription_urls = [url]
+        ordered = sorted(servers, key=lambda s: (not s.pinned, s.name.lower()))
+        for index, server in enumerate(ordered, 1):
+            server.id = index
+            server.source = url
+        profile.servers = ordered
+        profile.selected_server_id = ordered[0].id if ordered else 0
+        self.current_profile_id = profile.id
+        self.save()
+        return profile
+
+    def update_profile(self, profile_id: int, name: str, urls: list[str]) -> None:
+        """Edit a profile's name and subscription URL(s).
+
+        When the URL changes, servers that came from the old subscription are
+        re-stamped so the next refresh targets the new link.
+        """
+        profile = next((p for p in self.profiles if p.id == profile_id), None)
+        if profile is None:
+            return
+        profile.name = name.strip() or profile.name
+        clean_urls = [url.strip() for url in urls if url.strip()]
+        profile.subscription_urls = clean_urls
+        if len(clean_urls) == 1:
+            for server in profile.servers:
+                if server.source and server.source != "manual":
+                    server.source = clean_urls[0]
+        self.save()
+
     def delete_profile(self, profile_id: int) -> None:
+        """Remove a profile and renumber the rest 1..n (profile 2 becomes 1)."""
         if len(self.profiles) <= 1:
             return
-        self.profiles = [p for p in self.profiles if p.id != profile_id]
-        if self.current_profile_id == profile_id:
-            self.current_profile_id = self.profiles[0].id
+        index = next(
+            (i for i, p in enumerate(self.profiles) if p.id == profile_id), None
+        )
+        if index is None:
+            return
+        current = self.profile
+        was_current = current.id == profile_id
+        self.profiles.pop(index)
+        for number, profile in enumerate(self.profiles, 1):
+            profile.id = number
+        if was_current:
+            self.current_profile_id = self.profiles[min(index, len(self.profiles) - 1)].id
+        else:
+            self.current_profile_id = current.id
         self.save()
 
     def add_servers(

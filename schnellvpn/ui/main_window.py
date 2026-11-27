@@ -22,16 +22,15 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QHeaderView,
-    QInputDialog,
     QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
     QSystemTrayIcon,
-    QTableWidget,
-    QTableWidgetItem,
     QToolButton,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -48,6 +47,7 @@ from ..core.selection import rank_servers
 from ..core.store import Store
 from .dialogs import (
     AboutDialog,
+    EditProfileDialog,
     EditServerDialog,
     ImportDialog,
     LogsDialog,
@@ -190,27 +190,30 @@ class MainWindow(QMainWindow):
         self.section_label.setObjectName("section")
         outer.addWidget(self.section_label)
 
-        self.table = QTableWidget(0, 5)
-        self.table.setShowGrid(False)
-        self.table.setAlternatingRowColors(False)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(44)
-        self.table.setFocusPolicy(Qt.NoFocus)
-        header = self.table.horizontalHeader()
+        self.tree = QTreeWidget()
+        self.tree.setColumnCount(5)
+        self.tree.setRootIsDecorated(True)
+        self.tree.setIndentation(18)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tree.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tree.setFocusPolicy(Qt.NoFocus)
+        header = self.tree.header()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         for column in (1, 2, 3, 4):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         header.setHighlightSections(False)
         header.setSectionsClickable(True)
         header.sectionClicked.connect(self._on_header_clicked)
-        self.table.itemSelectionChanged.connect(self._on_selection_changed)
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self._table_menu)
-        self.table.doubleClicked.connect(self._row_activated)
-        outer.addWidget(self.table, 1)
+        self.tree.itemSelectionChanged.connect(self._on_selection_changed)
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._table_menu)
+        self.tree.itemDoubleClicked.connect(self._row_activated)
+        self.tree.itemExpanded.connect(self._on_profile_expanded)
+        self.tree.itemCollapsed.connect(self._on_profile_collapsed)
+        self._collapsed_profiles: set[int] = set()
+        outer.addWidget(self.tree, 1)
 
         self.empty_label = QLabel()
         self.empty_label.setAlignment(Qt.AlignCenter)
@@ -256,12 +259,31 @@ class MainWindow(QMainWindow):
         self.profile_combo.customContextMenuRequested.connect(self._profile_menu)
         row.addWidget(self.profile_combo)
 
-        add_profile = QToolButton()
-        add_profile.setText("+")
-        add_profile.setToolTip(t(self.lang, "new_profile"))
-        add_profile.clicked.connect(self._add_profile)
-        self.add_profile_button = add_profile
-        row.addWidget(add_profile)
+        self.add_profile_button = QToolButton()
+        self.add_profile_button.setText("+")
+        self.add_profile_button.setToolTip(t(self.lang, "new_profile"))
+        self.add_profile_button.setPopupMode(QToolButton.InstantPopup)
+        add_menu = QMenu(self.add_profile_button)
+        add_menu.addAction(t(self.lang, "add_from_clipboard")).triggered.connect(
+            self._add_from_clipboard
+        )
+        add_menu.addAction(t(self.lang, "add_manual")).triggered.connect(self._add_profile)
+        self.add_profile_button.setMenu(add_menu)
+        row.addWidget(self.add_profile_button)
+
+        self.edit_profile_button = QToolButton()
+        self.edit_profile_button.setText("\u270e")
+        self.edit_profile_button.setToolTip(t(self.lang, "edit_profile"))
+        self.edit_profile_button.clicked.connect(self._edit_current_profile)
+        row.addWidget(self.edit_profile_button)
+
+        self.delete_profile_button = QToolButton()
+        self.delete_profile_button.setText("\U0001F5D1")
+        self.delete_profile_button.setToolTip(t(self.lang, "delete_profile"))
+        self.delete_profile_button.clicked.connect(
+            lambda: self._delete_profile(self.store.current_profile_id)
+        )
+        row.addWidget(self.delete_profile_button)
 
         self.lang_button = QToolButton()
         self.lang_button.setText(LANG_NAMES.get(self.lang, "FA").upper())
@@ -361,8 +383,17 @@ class MainWindow(QMainWindow):
     def _build_toolbar(self) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setSpacing(8)
-        self.add_sub_button = QPushButton()
-        self.add_sub_button.clicked.connect(self._import_servers)
+        self.add_sub_button = QToolButton()
+        self.add_sub_button.setPopupMode(QToolButton.InstantPopup)
+        self.add_sub_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        sub_menu = QMenu(self.add_sub_button)
+        sub_menu.addAction(t(self.lang, "add_from_clipboard")).triggered.connect(
+            self._add_from_clipboard
+        )
+        sub_menu.addAction(t(self.lang, "add_manual")).triggered.connect(
+            self._import_servers
+        )
+        self.add_sub_button.setMenu(sub_menu)
         self.refresh_button = QPushButton()
         self.refresh_button.clicked.connect(self._refresh_subscriptions)
         self.ping_button = QPushButton()
@@ -486,7 +517,7 @@ class MainWindow(QMainWindow):
         else:
             self.speed_down_label.setText(f"{t(self.lang, 'download')}: \u2014")
             self.speed_up_label.setText(f"{t(self.lang, 'upload')}: \u2014")
-        self.table.setHorizontalHeaderLabels(
+        self.tree.setHeaderLabels(
             [
                 t(self.lang, "name"),
                 t(self.lang, "address"),
@@ -515,7 +546,7 @@ class MainWindow(QMainWindow):
     def _align_headers(self) -> None:
         # AlignLeft is leading; Qt mirrors it automatically in RTL layouts.
         for column in range(5):
-            item = self.table.horizontalHeaderItem(column)
+            item = self.tree.headerItem()
             if item is None:
                 continue
             alignment = (
@@ -523,7 +554,7 @@ class MainWindow(QMainWindow):
                 if column in (2, 3, 4)
                 else Qt.AlignLeft | Qt.AlignVCenter
             )
-            item.setTextAlignment(alignment)
+            item.setTextAlignment(column, alignment)
 
     def _update_theme_button(self) -> None:
         theme = self.store.get_setting("theme", "dark")
@@ -574,24 +605,88 @@ class MainWindow(QMainWindow):
         self.refresh_table()
 
     def _add_profile(self) -> None:
-        name, ok = QInputDialog.getText(
-            self, t(self.lang, "new_profile"), t(self.lang, "profile_name")
-        )
-        if not ok or not name.strip():
+        """Manually add a profile (name + subscription URL)."""
+        dialog = EditProfileDialog(self.lang, parent=self)
+        if dialog.exec() != QDialog.Accepted:
             return
-        self.store.add_profile(name.strip())
+        name, url = dialog.values()
+        profile = self.store.add_profile(name)
+        if url:
+            self.store.update_profile(profile.id, name, [url])
+            self._fill_profile_from_url(profile.id, url)
+        self._populate_profiles()
+        self.refresh_table()
+
+    def _add_from_clipboard(self) -> None:
+        """Import whatever subscription/config links are on the clipboard."""
+        text = QGuiApplication.clipboard().text().strip()
+        if not text:
+            self._set_hint(t(self.lang, "clipboard_empty"))
+            return
+        self._start_task(
+            lambda: self._parse_import(text),
+            self._import_done,
+            lambda exc: self._set_hint(f"{t(self.lang, 'import_fail')}: {exc}"),
+        )
+
+    def _fill_profile_from_url(self, profile_id: int, url: str) -> None:
+        def work() -> list[VpnServer]:
+            return subscription.fetch(url)
+
+        def done(servers: list[VpnServer]) -> None:
+            if not servers:
+                self._set_hint(t(self.lang, "refresh_failed"))
+                return
+            profile = next((p for p in self.store.profiles if p.id == profile_id), None)
+            if profile is None:
+                return
+            ordered = sorted(servers, key=lambda s: (not s.pinned, s.name.lower()))
+            for index, server in enumerate(ordered, 1):
+                server.id = index
+                server.source = url
+            profile.servers = ordered
+            profile.selected_server_id = ordered[0].id
+            self.store.save()
+            self._populate_profiles()
+            self.current_server = profile.selected_server
+            self.refresh_table()
+            self._ping_all()
+
+        self._start_task(
+            work,
+            done,
+            lambda exc: self._set_hint(f"{t(self.lang, 'refresh_failed')}: {exc}"),
+        )
+
+    def _edit_current_profile(self) -> None:
+        self._edit_profile(self.store.profile)
+
+    def _edit_profile(self, profile) -> None:
+        url = profile.subscription_urls[0] if profile.subscription_urls else ""
+        dialog = EditProfileDialog(
+            self.lang, profile.name, url, editing=True, parent=self
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        name, new_url = dialog.values()
+        self.store.update_profile(profile.id, name, [new_url] if new_url else [])
         self._populate_profiles()
         self.refresh_table()
 
     def _profile_menu(self, position) -> None:
-        if len(self.store.profiles) <= 1:
-            return
         menu = QMenu(self)
+        edit = menu.addAction(t(self.lang, "edit_profile"))
         delete = menu.addAction(t(self.lang, "delete_profile"))
-        delete.triggered.connect(self._delete_profile)
+        edit.triggered.connect(self._edit_current_profile)
+        delete.triggered.connect(
+            lambda: self._delete_profile(self.store.current_profile_id)
+        )
         menu.exec(self.profile_combo.mapToGlobal(position))
 
-    def _delete_profile(self) -> None:
+    def _delete_profile(self, profile_id: int) -> None:
+        if len(self.store.profiles) <= 1:
+            self._set_hint(t(self.lang, "last_profile"))
+            return
         answer = QMessageBox.question(
             self,
             t(self.lang, "delete_profile"),
@@ -599,57 +694,85 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.Yes:
             return
-        if self.state == STATE_CONNECTED:
+        if self.state in (STATE_CONNECTED, STATE_RECONNECTING):
             self._disconnect_async(quiet=True)
-        self.store.delete_profile(self.store.current_profile_id)
+        self.store.delete_profile(profile_id)
         self._populate_profiles()
+        self.current_server = None
         self.refresh_table()
 
-    # ------------------------------------------------------------------ table
+    # ------------------------------------------------------------------ server tree
+
+    def _server_item(self, profile_id: int, server: VpnServer) -> QTreeWidgetItem:
+        item = QTreeWidgetItem()
+        item.setText(0, f"{server.icon}  {server.name}")
+        item.setData(0, Qt.UserRole, (profile_id, server.id))
+        item.setData(0, Qt.UserRole + 1, "server")
+        item.setText(1, self._address_of(server.link))
+        item.setForeground(1, QColor("#7C8CA2"))
+        item.setText(2, server.label)
+        item.setForeground(2, QColor("#8496AC"))
+        ping = self.pings.get(server.id)
+        delay = self.delays.get(server.id)
+        for column, value in ((3, ping), (4, delay)):
+            item.setText(column, self._fmt_ms(value))
+            item.setTextAlignment(column, Qt.AlignCenter)
+            item.setForeground(column, self._ms_color(value))
+        item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+        return item
 
     def refresh_table(self) -> None:
-        profile = self.store.profile
-        selected_id = profile.selected_server_id
-        self.table.blockSignals(True)
-        self.table.setRowCount(len(profile.servers))
-        for row, server in enumerate(profile.servers):
-            name_item = QTableWidgetItem(f"{server.icon}  {server.name}")
-            name_item.setData(Qt.UserRole, server.id)
-            name_item.setFlags(
-                Qt.ItemIsEnabled | Qt.ItemIsSelectable
-            )
-            address_item = QTableWidgetItem(self._address_of(server.link))
-            address_item.setForeground(QColor("#7C8CA2"))
-            address_item.setFlags(
-                Qt.ItemIsEnabled | Qt.ItemIsSelectable
-            )
-            type_item = QTableWidgetItem(server.label)
-            type_item.setForeground(QColor("#8496AC"))
-            ping_item = QTableWidgetItem(self._fmt_ms(self.pings.get(server.id)))
-            ping_item.setTextAlignment(Qt.AlignCenter)
-            ping_item.setForeground(self._ms_color(self.pings.get(server.id)))
-            delay_item = QTableWidgetItem(self._fmt_ms(self.delays.get(server.id)))
-            delay_item.setTextAlignment(Qt.AlignCenter)
-            delay_item.setForeground(self._ms_color(self.delays.get(server.id)))
-            cells = (name_item, address_item, type_item, ping_item, delay_item)
-            for column, item in enumerate(cells):
-                self.table.setItem(row, column, item)
-        self.table.blockSignals(False)
+        """Rebuild the grouped, collapsible list of every profile and its servers."""
+        active = self.store.profile
+        self.tree.blockSignals(True)
+        self.tree.clear()
+        total = 0
+        for profile in self.store.profiles:
+            total += len(profile.servers)
+            group = QTreeWidgetItem(self.tree)
+            is_active = profile.id == active.id
+            mark = "  \u2713" if is_active else ""
+            group.setText(0, f"{profile.name}{mark}  ({len(profile.servers)})")
+            group.setData(0, Qt.UserRole, profile.id)
+            group.setData(0, Qt.UserRole + 1, "profile")
+            group.setForeground(0, QColor(ACCENT if is_active else "#93A6BF"))
+            group.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            for server in profile.servers:
+                group.addChild(self._server_item(profile.id, server))
+            group.setExpanded(profile.id not in self._collapsed_profiles)
+        self.tree.blockSignals(False)
 
-        if profile.servers:
-            target_row = 0
-            for row, server in enumerate(profile.servers):
-                if server.id == selected_id:
-                    target_row = row
-                    break
-            self.table.selectRow(target_row)
-            self.current_server = profile.servers[target_row]
-        else:
-            self.current_server = None
+        self.current_server = active.selected_server
+        if self.current_server is not None:
+            for index in range(self.tree.topLevelItemCount()):
+                group = self.tree.topLevelItem(index)
+                if group.data(0, Qt.UserRole) != active.id:
+                    continue
+                for child in range(group.childCount()):
+                    server_item = group.child(child)
+                    data = server_item.data(0, Qt.UserRole)
+                    if data and data[1] == self.current_server.id:
+                        self.tree.setCurrentItem(server_item)
+                        break
+                break
 
-        self.empty_label.setVisible(not profile.servers)
-        self.table.setVisible(bool(profile.servers))
+        self.empty_label.setVisible(total == 0)
+        self.tree.setVisible(total > 0)
         self._render_state()
+
+    def _on_profile_expanded(self, item: QTreeWidgetItem) -> None:
+        if item.data(0, Qt.UserRole + 1) == "profile":
+            self._collapsed_profiles.discard(int(item.data(0, Qt.UserRole)))
+
+    def _on_profile_collapsed(self, item: QTreeWidgetItem) -> None:
+        if item.data(0, Qt.UserRole + 1) == "profile":
+            self._collapsed_profiles.add(int(item.data(0, Qt.UserRole)))
+
+    def _find_server(self, profile_id: int, server_id: int) -> Optional[VpnServer]:
+        profile = next((p for p in self.store.profiles if p.id == profile_id), None)
+        if profile is None:
+            return None
+        return next((s for s in profile.servers if s.id == server_id), None)
 
     def _sort_servers(self) -> None:
         profile = self.store.profile
@@ -713,7 +836,7 @@ class MainWindow(QMainWindow):
         self.refresh_table()
 
     def _show_sort_indicator(self, column: int, descending: bool) -> None:
-        header = self.table.horizontalHeader()
+        header = self.tree.header()
         header.setSortIndicatorShown(True)
         header.setSortIndicator(
             column, Qt.DescendingOrder if descending else Qt.AscendingOrder
@@ -753,15 +876,39 @@ class MainWindow(QMainWindow):
         return QColor(DANGER)
 
     def _on_selection_changed(self) -> None:
-        rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
-        if not rows:
-            return
-        item = self.table.item(rows[0].row(), 0)
+        item = self.tree.currentItem()
         if item is None:
             return
-        server_id = int(item.data(Qt.UserRole))
-        profile = self.store.profile
-        server = next((s for s in profile.servers if s.id == server_id), None)
+        kind = item.data(0, Qt.UserRole + 1)
+        if kind == "profile":
+            # Clicking a group header switches the active profile.
+            profile_id = int(item.data(0, Qt.UserRole))
+            if profile_id != self.store.current_profile_id:
+                self.store.current_profile_id = profile_id
+                self.store.save()
+                index = self.profile_combo.findData(profile_id)
+                if index >= 0:
+                    self.profile_combo.blockSignals(True)
+                    self.profile_combo.setCurrentIndex(index)
+                    self.profile_combo.blockSignals(False)
+                self.current_server = self.store.profile.selected_server
+                self.refresh_table()
+            return
+        if kind != "server":
+            return
+        data = item.data(0, Qt.UserRole)
+        if not data:
+            return
+        profile_id, server_id = data
+        if profile_id != self.store.current_profile_id:
+            # Selecting a server in another profile switches to that profile.
+            self.store.current_profile_id = profile_id
+            index = self.profile_combo.findData(profile_id)
+            if index >= 0:
+                self.profile_combo.blockSignals(True)
+                self.profile_combo.setCurrentIndex(index)
+                self.profile_combo.blockSignals(False)
+        server = self._find_server(profile_id, server_id)
         if server is None:
             return
         if self.state == STATE_CONNECTED and self.current_server and self.current_server.id != server.id:
@@ -773,30 +920,47 @@ class MainWindow(QMainWindow):
         self.current_server = server
         self._render_state()
 
-    def _row_activated(self, _index) -> None:
+    def _row_activated(self, item: QTreeWidgetItem, _column: int = 0) -> None:
+        if item is None or item.data(0, Qt.UserRole + 1) != "server":
+            return
         if self.state == STATE_IDLE and not self._busy:
             self._connect_async()
 
     def _table_menu(self, position) -> None:
-        row = self.table.rowAt(position.y())
-        if row < 0:
-            return
-        item = self.table.item(row, 0)
+        item = self.tree.itemAt(position)
         if item is None:
             return
-        server_id = int(item.data(Qt.UserRole))
-        server = next(
-            (s for s in self.store.profile.servers if s.id == server_id), None
-        )
+        kind = item.data(0, Qt.UserRole + 1)
+        menu = QMenu(self)
+        if kind == "profile":
+            profile_id = int(item.data(0, Qt.UserRole))
+            profile = next((p for p in self.store.profiles if p.id == profile_id), None)
+            if profile is None:
+                return
+            refresh = menu.addAction(t(self.lang, "refresh_subscription"))
+            edit = menu.addAction(t(self.lang, "edit_profile"))
+            delete = menu.addAction(t(self.lang, "delete_profile"))
+            chosen = menu.exec(self.tree.viewport().mapToGlobal(position))
+            if chosen == refresh:
+                self.store.current_profile_id = profile_id
+                self._refresh_subscriptions()
+            elif chosen == edit:
+                self._edit_profile(profile)
+            elif chosen == delete:
+                self._delete_profile(profile_id)
+            return
+        if kind != "server":
+            return
+        profile_id, server_id = item.data(0, Qt.UserRole)
+        server = self._find_server(profile_id, server_id)
         if server is None:
             return
-        menu = QMenu(self)
         copy = menu.addAction(t(self.lang, "copy_link"))
         share = menu.addAction(t(self.lang, "share"))
         edit = menu.addAction(t(self.lang, "edit"))
         menu.addSeparator()
         delete = menu.addAction(t(self.lang, "delete"))
-        chosen = menu.exec(self.table.viewport().mapToGlobal(position))
+        chosen = menu.exec(self.tree.viewport().mapToGlobal(position))
         if chosen == copy:
             QGuiApplication.clipboard().setText(server.link)
             self._set_hint(t(self.lang, "copied"))
@@ -846,37 +1010,45 @@ class MainWindow(QMainWindow):
             return
         text = dialog.text().strip()
         self._set_hint(t(self.lang, "importing"))
-
-        def work() -> tuple[list[VpnServer], list[str]]:
-            servers: list[VpnServer] = []
-            urls: list[str] = []
-            for line in text.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                if line.lower().startswith(("http://", "https://")):
-                    fetched = subscription.fetch(line)
-                    for server in fetched:
-                        server.source = line
-                    servers.extend(fetched)
-                    if line not in urls:
-                        urls.append(line)
-                else:
-                    servers.extend(subscription.parse_content(line))
-            if not servers:
-                raise ValueError(t(self.lang, "import_fail"))
-            return servers, urls
-
         self._start_task(
-            work,
-            lambda result: self._import_done(*result),
+            lambda: self._parse_import(text),
+            self._import_done,
             lambda exc: self._set_hint(f"{t(self.lang, 'import_fail')}: {exc}"),
         )
 
-    def _import_done(self, servers: list[VpnServer], urls: list[str]) -> None:
-        count = self.store.add_servers(servers, urls)
-        self._log(f"imported {count} servers")
+    def _parse_import(self, text: str) -> tuple[list[tuple[str, list[VpnServer]]], list[VpnServer]]:
+        """Split pasted text into subscriptions (one profile each) and direct links."""
+        subscriptions: list[tuple[str, list[VpnServer]]] = []
+        direct: list[VpnServer] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.lower().startswith(("http://", "https://")):
+                subscriptions.append((line, subscription.fetch(line)))
+            else:
+                direct.extend(subscription.parse_content(line))
+        if not subscriptions and not direct:
+            raise ValueError(t(self.lang, "import_fail"))
+        return subscriptions, direct
+
+    def _import_done(
+        self,
+        result: tuple[list[tuple[str, list[VpnServer]]], list[VpnServer]],
+    ) -> None:
+        subscriptions, direct = result
+        active_id = self.store.current_profile_id
+        count = 0
+        for url, servers in subscriptions:
+            profile = self.store.add_subscription_profile(url, servers)
+            count += len(profile.servers)
+        if direct:
+            self.store.current_profile_id = active_id
+            count += self.store.add_servers(direct, [])
+        self._populate_profiles()
+        self._log(f"imported {count} servers into {len(subscriptions) or 1} profile(s)")
         self._set_hint(t(self.lang, "import_ok", count=count))
+        self.current_server = self.store.profile.selected_server
         self.refresh_table()
         self._ping_all()
 
@@ -950,8 +1122,9 @@ class MainWindow(QMainWindow):
             (server.id for server in merged if server.link == selected_link),
             merged[0].id,
         )
-        self.pings.clear()
-        self.delays.clear()
+        for server in old:
+            self.pings.pop(server.id, None)
+            self.delays.pop(server.id, None)
         for server in merged:
             if server.link in old_pings:
                 self.pings[server.id] = old_pings[server.link]
@@ -1735,16 +1908,21 @@ class MainWindow(QMainWindow):
         self._refresh_table_metrics()
 
     def _refresh_table_metrics(self) -> None:
-        profile = self.store.profile
-        for row, server in enumerate(profile.servers):
-            ping_item = self.table.item(row, 3)
-            delay_item = self.table.item(row, 4)
-            if ping_item is None or delay_item is None:
-                continue
-            ping_item.setText(self._fmt_ms(self.pings.get(server.id)))
-            ping_item.setForeground(self._ms_color(self.pings.get(server.id)))
-            delay_item.setText(self._fmt_ms(self.delays.get(server.id)))
-            delay_item.setForeground(self._ms_color(self.delays.get(server.id)))
+        """Refresh the ping/delay cells of every server in every profile."""
+        for index in range(self.tree.topLevelItemCount()):
+            group = self.tree.topLevelItem(index)
+            for child in range(group.childCount()):
+                item = group.child(child)
+                data = item.data(0, Qt.UserRole)
+                if not data or item.data(0, Qt.UserRole + 1) != "server":
+                    continue
+                server_id = data[1]
+                ping = self.pings.get(server_id)
+                delay = self.delays.get(server_id)
+                item.setText(3, self._fmt_ms(ping))
+                item.setForeground(3, self._ms_color(ping))
+                item.setText(4, self._fmt_ms(delay))
+                item.setForeground(4, self._ms_color(delay))
 
     def _update_uptime(self) -> None:
         if self.state != STATE_CONNECTED or self.connected_at is None:

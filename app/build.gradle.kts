@@ -12,8 +12,8 @@ android {
         applicationId = "com.schnellvpn.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 22
-        versionName = "1.6.6"
+        versionCode = 23
+        versionName = "1.6.7"
 
         // ABI coverage is defined by `splits.abi` below (one APK per ABI).
         // Do not also set ndk.abiFilters here: recent AGP rejects having both.
