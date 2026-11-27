@@ -38,12 +38,18 @@ def test_config_ports_covers_every_inbound():
     assert config_ports(config) == [10808, 10809, 10811]
 
 
+def _ours(path: str) -> str:
+    """An xray path that `looks_like_ours` accepts on this platform."""
+    return str(Path(path) / runner.xray_name())
+
+
 def test_looks_like_ours_matches_installed_and_portable_paths():
-    assert looks_like_ours(r"C:\Users\a\AppData\Local\SchnellVPN\runtime\_MEI1\xray\xray.exe")
-    assert looks_like_ours(r"C:\Temp\_MEI99\xray\xray.exe")
-    assert looks_like_ours(r"C:\Program Files\SchnellVPN\xray.exe")
-    assert not looks_like_ours(r"C:\tools\xray\xray.exe")
-    assert not looks_like_ours(r"C:\SchnellVPN\xray.exe.bak")
+    name = runner.xray_name()
+    assert looks_like_ours(_ours("C:/Users/a/AppData/Local/SchnellVPN/runtime/_MEI1/xray"))
+    assert looks_like_ours(_ours("C:/Temp/_MEI99/xray"))
+    assert looks_like_ours(_ours("C:/Program Files/SchnellVPN"))
+    assert not looks_like_ours(_ours("C:/tools/xray"))
+    assert not looks_like_ours(str(Path("C:/SchnellVPN") / (name + ".bak")))
     assert not looks_like_ours("")
 
 
@@ -85,24 +91,24 @@ def test_start_cleans_a_leftover_owner_before_binding(tmp_path, monkeypatch):
 
 
 def test_cleanup_stale_skips_our_own_children(tmp_path, monkeypatch):
-    binary = tmp_path / "xray.exe"
+    binary = tmp_path / runner.xray_name()
     binary.write_bytes(b"stub")
     process = XrayProcess(binary=binary, data_dir=tmp_path)
     process.process = type("P", (), {"pid": 4242})()
     monkeypatch.setattr(runner, "_all_pids", lambda: [4242, 4243])
-    monkeypatch.setattr(runner, "_image_of", lambda pid: r"C:\SchnellVPN\xray.exe")
+    monkeypatch.setattr(runner, "_image_of", lambda pid: _ours("C:/SchnellVPN"))
     assert process.stale_pids() == [4243]
 
 
 def test_kill_stale_xray_terminates_matching_processes(tmp_path, monkeypatch):
-    binary = tmp_path / "xray.exe"
+    binary = tmp_path / runner.xray_name()
     binary.write_bytes(b"stub")
     terminated: list[int] = []
     monkeypatch.setattr(runner, "_all_pids", lambda: [11, 12, 13])
     monkeypatch.setattr(
         runner,
         "_image_of",
-        lambda pid: r"C:\SchnellVPN\xray.exe" if pid != 13 else r"C:\other\notepad.exe",
+        lambda pid: _ours("C:/SchnellVPN") if pid != 13 else "C:/other/notepad.exe",
     )
     monkeypatch.setattr(runner, "_terminate", lambda pid: terminated.append(pid) or True)
     count = runner.kill_stale_xray(binary=binary, data_dir=tmp_path)
