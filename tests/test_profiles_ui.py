@@ -62,6 +62,45 @@ def test_profile_groups_collapse_and_rebuild(tmp_path, qt_app):
         delete_qt(window)
 
 
+def test_profile_actions_live_inside_the_combo(tmp_path, qt_app):
+    window = _window(tmp_path, qt_app)
+    try:
+        items = [
+            window.profile_combo.itemData(i)
+            for i in range(window.profile_combo.count())
+        ]
+        assert 1 in items  # the profile itself
+        for key in ("add_from_clipboard", "add_manual", "edit_profile", "delete_profile"):
+            assert key in items
+    finally:
+        window.shutdown()
+        delete_qt(window)
+
+
+def test_double_click_profile_toggles_expansion(tmp_path, qt_app):
+    first = Profile(1, "Profile 1", [_server("a")], 1, [])
+    window = _window(tmp_path, qt_app, [first])
+    try:
+        group = window.tree.topLevelItem(0)
+        assert group.isExpanded()
+        window._row_activated(group, 0)
+        assert not group.isExpanded()
+        window._row_activated(group, 0)
+        assert group.isExpanded()
+    finally:
+        window.shutdown()
+        delete_qt(window)
+
+
+def test_dark_theme_styles_the_server_tree():
+    from schnellvpn.ui.theme import stylesheet
+
+    qss = stylesheet("dark")
+    assert "QTreeWidget" in qss
+    assert "QTreeWidget::item:selected" in qss
+    assert "__ARROW_RIGHT__" not in qss
+
+
 def test_import_creates_one_profile_per_subscription(tmp_path, qt_app, monkeypatch):
     window = _window(tmp_path, qt_app)
     monkeypatch.setattr(window, "_ping_all", lambda: None)

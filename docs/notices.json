@@ -2,20 +2,20 @@
   "schema": 1,
   "notices": [
     {
-      "id": "update-to-1-6-7-2026",
+      "id": "update-to-1-6-8-2026",
       "level": "warning",
       "platforms": ["windows", "linux", "android"],
-      "max_version": "1.6.6",
+      "max_version": "1.6.7",
       "update": true,
       "title": {
-        "fa": "به\u200cروزرسانی به نسخه ۱.۶.۷",
-        "en": "Update to version 1.6.7",
-        "de": "Update auf Version 1.6.7"
+        "fa": "به\u200cروزرسانی به نسخه ۱.۶.۸",
+        "en": "Update to version 1.6.8",
+        "de": "Update auf Version 1.6.8"
       },
       "message": {
-        "fa": "نسخه ۱.۶.۷ جداسازی پروفایلها را به ویندوز و لینوکس آورد: هر اشتراک یک پروفایل جدا، لیست سرورها بهصورت گروههای باز/بسته، دکمههای افزودن/ویرایش/حذف پروفایل و امکان افزودن از کلیپبورد. از «بررسی به\u200cروزرسانی» در تنظیمات یا دکمهٔ دانلود همین پیام استفاده کنید.",
-        "en": "Version 1.6.7 brings profile separation to Windows and Linux: one profile per subscription, a collapsible grouped server list, add/edit/delete profile buttons and paste-from-clipboard import. Use Check for updates in Settings or the download button in this message.",
-        "de": "Version 1.6.7 bringt die Profiltrennung auf Windows und Linux: ein Profil pro Abo, eine einklappbare gruppierte Serverliste, Buttons zum Hinzufügen/Bearbeiten/Löschen von Profilen und Import aus der Zwischenablage. Nutze „Nach Updates suchen“ in den Einstellungen oder den Download-Button dieser Nachricht."
+        "fa": "نسخه ۱.۶.۸ دکمههای پروفایل را داخل منوی Profile قرار میدهد، رنگ لیست سرورها را با تم برنامه هماهنگ میکند و با دوبار کلیک روی نام پروفایل، سرورهای آن را باز/بسته میکند. از «بررسی به\u200cروزرسانی» در تنظیمات یا دکمهٔ دانلود همین پیام استفاده کنید.",
+        "en": "Version 1.6.8 moves the profile actions inside the Profile menu, matches the server list colours to the app theme, and lets you fold/unfold a profile's servers by double-clicking its name. Use Check for updates in Settings or the download button in this message.",
+        "de": "Version 1.6.8 verlegt die Profilaktionen in das Profilmenü, passt die Farben der Serverliste an das App-Design an und erlaubt das Ein-/Ausklappen der Server eines Profils per Doppelklick auf seinen Namen. Nutze „Nach Updates suchen“ in den Einstellungen oder den Download-Button dieser Nachricht."
       }
     },
     {

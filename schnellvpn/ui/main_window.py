@@ -253,37 +253,9 @@ class MainWindow(QMainWindow):
         row.addStretch(1)
 
         self.profile_combo = QComboBox()
-        self.profile_combo.setMinimumWidth(140)
+        self.profile_combo.setMinimumWidth(180)
         self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
-        self.profile_combo.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.profile_combo.customContextMenuRequested.connect(self._profile_menu)
         row.addWidget(self.profile_combo)
-
-        self.add_profile_button = QToolButton()
-        self.add_profile_button.setText("+")
-        self.add_profile_button.setToolTip(t(self.lang, "new_profile"))
-        self.add_profile_button.setPopupMode(QToolButton.InstantPopup)
-        add_menu = QMenu(self.add_profile_button)
-        add_menu.addAction(t(self.lang, "add_from_clipboard")).triggered.connect(
-            self._add_from_clipboard
-        )
-        add_menu.addAction(t(self.lang, "add_manual")).triggered.connect(self._add_profile)
-        self.add_profile_button.setMenu(add_menu)
-        row.addWidget(self.add_profile_button)
-
-        self.edit_profile_button = QToolButton()
-        self.edit_profile_button.setText("\u270e")
-        self.edit_profile_button.setToolTip(t(self.lang, "edit_profile"))
-        self.edit_profile_button.clicked.connect(self._edit_current_profile)
-        row.addWidget(self.edit_profile_button)
-
-        self.delete_profile_button = QToolButton()
-        self.delete_profile_button.setText("\U0001F5D1")
-        self.delete_profile_button.setToolTip(t(self.lang, "delete_profile"))
-        self.delete_profile_button.clicked.connect(
-            lambda: self._delete_profile(self.store.current_profile_id)
-        )
-        row.addWidget(self.delete_profile_button)
 
         self.lang_button = QToolButton()
         self.lang_button.setText(LANG_NAMES.get(self.lang, "FA").upper())
@@ -501,7 +473,6 @@ class MainWindow(QMainWindow):
         self.share_button.setText(t(self.lang, "share"))
         self.settings_button.setToolTip(t(self.lang, "settings"))
         self.theme_button.setToolTip(t(self.lang, "theme"))
-        self.add_profile_button.setToolTip(t(self.lang, "new_profile"))
         self.update_button.setToolTip(f"{t(self.lang, 'check_update')} \u00b7 v{__version__}")
         self.speed_title.setText(t(self.lang, "live_speed").upper())
         self.speed_down_label.setToolTip(t(self.lang, "download"))
@@ -589,17 +560,41 @@ class MainWindow(QMainWindow):
         self.profile_combo.clear()
         for profile in self.store.profiles:
             self.profile_combo.addItem(profile.name, profile.id)
+        # The profile actions live inside the profile selector itself.
+        self.profile_combo.insertSeparator(self.profile_combo.count())
+        for key in ("add_from_clipboard", "add_manual", "edit_profile", "delete_profile"):
+            self.profile_combo.addItem(f"   {t(self.lang, key)}", key)
         index = self.profile_combo.findData(self.store.current_profile_id)
         self.profile_combo.setCurrentIndex(max(0, index))
         self.profile_combo.blockSignals(False)
 
+    def _sync_profile_combo(self) -> None:
+        index = self.profile_combo.findData(self.store.current_profile_id)
+        if index >= 0:
+            self.profile_combo.blockSignals(True)
+            self.profile_combo.setCurrentIndex(index)
+            self.profile_combo.blockSignals(False)
+
     def _on_profile_changed(self, _index: int) -> None:
-        profile_id = self.profile_combo.currentData()
-        if profile_id is None:
+        data = self.profile_combo.currentData()
+        if data is None:
             return
+        if isinstance(data, str):
+            # Restore the visible selection, then run the chosen action.
+            QTimer.singleShot(0, self._sync_profile_combo)
+            if data == "add_from_clipboard":
+                self._add_from_clipboard()
+            elif data == "add_manual":
+                self._add_profile()
+            elif data == "edit_profile":
+                self._edit_current_profile()
+            elif data == "delete_profile":
+                self._delete_profile(self.store.current_profile_id)
+            return
+        profile_id = int(data)
         if self.state == STATE_CONNECTED:
             self._disconnect_async(quiet=True)
-        self.store.current_profile_id = int(profile_id)
+        self.store.current_profile_id = profile_id
         self.store.save()
         self.current_server = None
         self.refresh_table()
@@ -672,16 +667,6 @@ class MainWindow(QMainWindow):
         self.store.update_profile(profile.id, name, [new_url] if new_url else [])
         self._populate_profiles()
         self.refresh_table()
-
-    def _profile_menu(self, position) -> None:
-        menu = QMenu(self)
-        edit = menu.addAction(t(self.lang, "edit_profile"))
-        delete = menu.addAction(t(self.lang, "delete_profile"))
-        edit.triggered.connect(self._edit_current_profile)
-        delete.triggered.connect(
-            lambda: self._delete_profile(self.store.current_profile_id)
-        )
-        menu.exec(self.profile_combo.mapToGlobal(position))
 
     def _delete_profile(self, profile_id: int) -> None:
         if len(self.store.profiles) <= 1:
@@ -886,11 +871,7 @@ class MainWindow(QMainWindow):
             if profile_id != self.store.current_profile_id:
                 self.store.current_profile_id = profile_id
                 self.store.save()
-                index = self.profile_combo.findData(profile_id)
-                if index >= 0:
-                    self.profile_combo.blockSignals(True)
-                    self.profile_combo.setCurrentIndex(index)
-                    self.profile_combo.blockSignals(False)
+                self._sync_profile_combo()
                 self.current_server = self.store.profile.selected_server
                 self.refresh_table()
             return
@@ -903,11 +884,7 @@ class MainWindow(QMainWindow):
         if profile_id != self.store.current_profile_id:
             # Selecting a server in another profile switches to that profile.
             self.store.current_profile_id = profile_id
-            index = self.profile_combo.findData(profile_id)
-            if index >= 0:
-                self.profile_combo.blockSignals(True)
-                self.profile_combo.setCurrentIndex(index)
-                self.profile_combo.blockSignals(False)
+            self._sync_profile_combo()
         server = self._find_server(profile_id, server_id)
         if server is None:
             return
@@ -921,7 +898,15 @@ class MainWindow(QMainWindow):
         self._render_state()
 
     def _row_activated(self, item: QTreeWidgetItem, _column: int = 0) -> None:
-        if item is None or item.data(0, Qt.UserRole + 1) != "server":
+        if item is None:
+            return
+        kind = item.data(0, Qt.UserRole + 1)
+        if kind == "profile":
+            # Double-clicking the profile name (or the arrow beside it) folds
+            # its server list away; clicking the name once switches profile.
+            item.setExpanded(not item.isExpanded())
+            return
+        if kind != "server":
             return
         if self.state == STATE_IDLE and not self._busy:
             self._connect_async()

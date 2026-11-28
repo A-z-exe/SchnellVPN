@@ -137,6 +137,16 @@ QTableWidget { background: transparent; border: none; outline: none;
                gridline-color: transparent; selection-background-color: transparent; }
 QTableWidget::item { border-bottom: 1px solid #131D2A; padding: 6px 4px; }
 QTableWidget::item:selected { background: #122234; color: #E6EDF3; }
+QTreeWidget { background: transparent; border: none; outline: none;
+              selection-background-color: transparent; }
+QTreeWidget::item { background: transparent; color: #D7E3F1;
+                    border-bottom: 1px solid #131D2A; padding: 6px 4px; }
+QTreeWidget::item:selected { background: #122234; color: #E6EDF3; }
+QTreeWidget::branch { background: transparent; }
+QTreeWidget::branch:has-children:!has-siblings:closed,
+QTreeWidget::branch:closed:has-children:has-siblings { border-image: none; image: url("__ARROW_RIGHT__"); }
+QTreeWidget::branch:open:has-children:!has-siblings,
+QTreeWidget::branch:open:has-children:has-siblings { border-image: none; image: url("__ARROW__"); }
 QHeaderView { background: transparent; border: none; }
 QHeaderView::section { background: transparent; color: #76879D; border: none;
                        padding: 4px 6px; font-size: 11px; font-weight: 600; }
@@ -200,6 +210,15 @@ QComboBox::down-arrow { image: url("__ARROW__"); width: 10px; height: 6px; }
 QTableWidget { background: transparent; border: none; gridline-color: transparent; }
 QTableWidget::item { border-bottom: 1px solid #E7EDF5; padding: 6px 4px; }
 QTableWidget::item:selected { background: #E0F2FE; color: #0F172A; }
+QTreeWidget { background: transparent; border: none; outline: none; }
+QTreeWidget::item { background: transparent; color: #1E293B;
+                    border-bottom: 1px solid #E7EDF5; padding: 6px 4px; }
+QTreeWidget::item:selected { background: #E0F2FE; color: #0F172A; }
+QTreeWidget::branch { background: transparent; }
+QTreeWidget::branch:has-children:!has-siblings:closed,
+QTreeWidget::branch:closed:has-children:has-siblings { border-image: none; image: url("__ARROW_RIGHT__"); }
+QTreeWidget::branch:open:has-children:!has-siblings,
+QTreeWidget::branch:open:has-children:has-siblings { border-image: none; image: url("__ARROW__"); }
 QHeaderView { background: transparent; border: none; }
 QHeaderView::section { background: transparent; color: #64748B; border: none;
                        padding: 4px 6px; font-size: 11px; font-weight: 600; }
@@ -219,9 +238,11 @@ QTabBar::tab:selected { color: #0F172A; border-bottom: 2px solid #2563EB; }
 """
 
 
-def _arrow_png(color: str) -> str:
-    """QSS can only reference images by path, so draw the combo arrow once."""
-    target = Path(tempfile.gettempdir()) / f"schnellvpn-arrow-v1-{color.lstrip('#')}.png"
+def _arrow_png(color: str, direction: str = "down") -> str:
+    """QSS can only reference images by path, so draw the arrow once."""
+    target = Path(tempfile.gettempdir()) / (
+        f"schnellvpn-arrow-v2-{direction}-{color.lstrip('#')}.png"
+    )
     if not target.is_file():
         pixmap = QPixmap(20, 12)
         pixmap.fill(Qt.transparent)
@@ -230,9 +251,14 @@ def _arrow_png(color: str) -> str:
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(color))
         head = QPainterPath()
-        head.moveTo(QPointF(5, 3))
-        head.lineTo(QPointF(15, 3))
-        head.lineTo(QPointF(10, 9))
+        if direction == "right":
+            head.moveTo(QPointF(5, 2))
+            head.lineTo(QPointF(5, 10))
+            head.lineTo(QPointF(12, 6))
+        else:
+            head.moveTo(QPointF(5, 3))
+            head.lineTo(QPointF(15, 3))
+            head.lineTo(QPointF(10, 9))
         head.closeSubpath()
         painter.drawPath(head)
         painter.end()
@@ -243,7 +269,9 @@ def _arrow_png(color: str) -> str:
 def stylesheet(theme: str) -> str:
     qss = LIGHT_QSS if theme == "light" else DARK_QSS
     arrow_color = "#64748B" if theme == "light" else "#8496AC"
-    return qss.replace("__ARROW__", _arrow_png(arrow_color))
+    return qss.replace("__ARROW__", _arrow_png(arrow_color)).replace(
+        "__ARROW_RIGHT__", _arrow_png(arrow_color, "right")
+    )
 
 
 def make_logo(size: int = 128, green: bool = False) -> QPixmap:
